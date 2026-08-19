@@ -1,0 +1,17 @@
+{
+  "name": "voxora",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/admin",
+    "packages/*"
+  ],
+  "scripts": {
+    "admin": "npm run dev --workspace=voxora-admin",
+    "admin:build": "npm run build --workspace=voxora-admin",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

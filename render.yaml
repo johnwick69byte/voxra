@@ -1,0 +1,75 @@
+# Render Blueprint — API service
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: voxora-api
+    runtime: docker
+    rootDir: apps/api
+    plan: free
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: ALLOW_ADMIN_BOOTSTRAP
+        value: "false"
+      - key: MONGODB_DB
+        value: voxora
+      - key: JWT_EXPIRE_DAYS
+        value: "30"
+      - key: COMMISSION_RATE
+        value: "0.15"
+      - key: CALL_RING_TIMEOUT_SECONDS
+        value: "45"
+      - key: MIN_AUDIO_RATE
+        value: "3.0"
+      - key: MIN_VIDEO_RATE
+        value: "7.0"
+      - key: APP_MIN_VERSION_ANDROID
+        value: "1.0.0"
+      - key: APP_MIN_VERSION_IOS
+        value: "1.0.0"
+      - key: DEEP_LINK_SCHEME
+        value: voxora
+      - key: SOCKETIO_CORS_ORIGINS
+        value: "*"
+      - key: DEV_OTP_CODE
+        value: ""
+      # Set these in Render Dashboard → Environment (do not commit secrets):
+      - key: BACKEND_URL
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_JWT_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: AGORA_APP_ID
+        sync: false
+      - key: AGORA_APP_CERTIFICATE
+        sync: false
+      - key: FIREBASE_CREDENTIALS_PATH
+        sync: false
+      - key: MESSAGECENTRAL_CUSTOMER_ID
+        sync: false
+      - key: MESSAGECENTRAL_API_KEY
+        sync: false
+      - key: MESSAGECENTRAL_EMAIL
+        sync: false
+      - key: TRUSTOPE_USER_TOKEN
+        sync: false
+      - key: TRUSTOPE_REDIRECT_URL
+        sync: false
+      - key: IMAGEKIT_PRIVATE_KEY
+        sync: false
+      - key: IMAGEKIT_PUBLIC_KEY
+        sync: false
+      - key: IMAGEKIT_URL_ENDPOINT
+        sync: false

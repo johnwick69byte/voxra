@@ -1,0 +1,20 @@
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - voxora_mongo:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: voxora
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - voxora_redis:/data
+
+volumes:
+  voxora_mongo:
+  voxora_redis:

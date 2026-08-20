@@ -70,6 +70,11 @@ export const callsAPI = {
     api.post(`/calls/${callId}/report`, { reason }),
 };
 
+export const referralAPI = {
+  overview: () => api.get("/profile/referral"),
+  apply: (code: string) => api.post("/profile/referral/apply", { code }),
+};
+
 export const walletAPI = {
   packages: () => api.get("/wallet/packages"),
   balance: () => api.get("/wallet/balance"),

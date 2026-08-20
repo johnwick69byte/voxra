@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.backgroundElevated,
     paddingHorizontal: 14,
     fontFamily: theme.font.body,
     color: theme.colors.text,
@@ -306,7 +306,7 @@ const styles = StyleSheet.create({
   },
   chipOn: { backgroundColor: theme.colors.brand },
   chipText: { fontFamily: theme.font.bodySemi, color: theme.colors.textSecondary, fontSize: 13 },
-  chipTextOn: { color: "#fff" },
+  chipTextOn: { color: theme.colors.onBrand },
   row: { flexDirection: "row", gap: 14, alignItems: "center" },
   name: {
     fontFamily: theme.font.bodyBold,
@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
     color: theme.colors.accentDeep,
   },
   callRow: {
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.backgroundElevated,
     padding: 14,
     borderRadius: theme.radius.md,
     marginBottom: 8,

@@ -35,7 +35,7 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 64 },
   title: { fontSize: 28, fontWeight: "800", color: theme.colors.brand, paddingHorizontal: 24 },
   row: {
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.backgroundElevated,
     padding: 14,
     borderRadius: 12,
     marginBottom: 8,

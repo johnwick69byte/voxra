@@ -86,6 +86,10 @@ class CompleteProfileRequest(BaseModel):
         return name
 
 
+class ApplyReferralRequest(BaseModel):
+    code: str
+
+
 class UpdateProfileRequest(BaseModel):
     name: Optional[str] = None
     username: Optional[str] = None

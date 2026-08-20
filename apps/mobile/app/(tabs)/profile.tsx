@@ -1,6 +1,5 @@
-import { View, StyleSheet, Pressable, ScrollView, Share } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
-import Toast from "react-native-toast-message";
 import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText, Avatar } from "../../src/components/ui";
@@ -10,17 +9,6 @@ export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
   const router = useRouter();
   const isCreator = user?.user_type === "creator";
-
-  const shareReferral = async () => {
-    if (!user?.referral_code) return;
-    try {
-      await Share.share({
-        message: `Join Voxora with my code ${user.referral_code} — instant calls with creators.`,
-      });
-    } catch {
-      Toast.show({ type: "info", text1: user.referral_code });
-    }
-  };
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -35,19 +23,10 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {user?.referral_code ? (
-        <Pressable style={styles.refCard} onPress={shareReferral}>
-          <AppText variant="label" style={{ color: "rgba(255,255,255,0.7)" }}>
-            Your referral code
-          </AppText>
-          <AppText style={styles.refCode}>{user.referral_code}</AppText>
-          <AppText variant="caption" style={{ color: "rgba(255,255,255,0.7)" }}>
-            Tap to share — earn when friends recharge
-          </AppText>
-        </Pressable>
-      ) : null}
-
       <View style={styles.links}>
+        <Pressable onPress={() => router.push("/(tabs)/referral")}>
+          <AppText style={styles.link}>Invite friends</AppText>
+        </Pressable>
         <Pressable onPress={() => router.push("/edit-profile")}>
           <AppText style={styles.link}>Edit profile</AppText>
         </Pressable>
@@ -104,19 +83,6 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.displayMedium,
     fontSize: 24,
     color: theme.colors.text,
-  },
-  refCard: {
-    marginTop: 24,
-    backgroundColor: theme.colors.brandDark,
-    borderRadius: theme.radius.lg,
-    padding: 18,
-  },
-  refCode: {
-    fontFamily: theme.font.display,
-    fontSize: 28,
-    color: "#fff",
-    marginTop: 6,
-    letterSpacing: 2,
   },
   links: { marginTop: 32, gap: 16 },
   link: {

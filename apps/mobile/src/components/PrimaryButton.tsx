@@ -24,6 +24,7 @@ export function PrimaryButton({
     <TouchableOpacity
       style={[
         styles.btn,
+        variant === "primary" && styles.glow,
         {
           backgroundColor: bg,
           borderWidth: variant === "ghost" ? 1 : 0,
@@ -36,7 +37,7 @@ export function PrimaryButton({
       activeOpacity={0.85}
     >
       {loading ? (
-        <ActivityIndicator color={variant === "ghost" ? theme.colors.brand : "#fff"} />
+        <ActivityIndicator color={variant === "ghost" ? theme.colors.brandLight : theme.colors.onBrand} />
       ) : (
         <Text style={[styles.label, variant === "ghost" && { color: theme.colors.text }]}>
           {label}
@@ -54,8 +55,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 20,
   },
+  glow: {
+    shadowColor: theme.colors.brandLight,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    elevation: 8,
+  },
   label: {
-    color: "#fff",
+    color: theme.colors.onBrand,
     fontSize: 16,
     fontFamily: theme.font.bodyBold,
   },

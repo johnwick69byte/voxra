@@ -89,7 +89,7 @@ export default function EditProfile() {
           <Image source={{ uri: picture }} style={styles.avatar} />
         ) : (
           <View style={[styles.avatar, styles.avatarEmpty]}>
-            <AppText color="#fff">Photo</AppText>
+            <AppText color={theme.colors.onBrand}>Photo</AppText>
           </View>
         )}
       </Pressable>

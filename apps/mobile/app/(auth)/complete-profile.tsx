@@ -99,7 +99,7 @@ export default function CompleteProfile() {
           <Image source={{ uri: picture }} style={styles.avatar} />
         ) : (
           <View style={[styles.avatar, styles.avatarEmpty]}>
-            <AppText color="#fff" style={{ fontFamily: theme.font.bodySemi }}>
+            <AppText color={theme.colors.onBrand} style={{ fontFamily: theme.font.bodySemi }}>
               Add photo
             </AppText>
           </View>

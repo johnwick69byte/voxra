@@ -172,7 +172,7 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <ForceUpdateGate />
       <Stack
         screenOptions={{

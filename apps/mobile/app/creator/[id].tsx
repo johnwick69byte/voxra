@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "rgba(255,255,255,0.45)",
   },
-  dotOn: { backgroundColor: "#fff" },
+  dotOn: { backgroundColor: theme.colors.onBrand },
   body: {
     padding: 24,
     marginTop: -20,
@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
   reviewRow: {
     marginTop: 10,
     padding: 12,
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.backgroundElevated,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     padding: 16,
     paddingBottom: 28,
-    backgroundColor: "rgba(247,244,239,0.96)",
+    backgroundColor: "rgba(7,13,12,0.94)",
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
   },

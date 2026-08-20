@@ -6,9 +6,20 @@ from fastapi import APIRouter, Depends
 from app.core.database import get_db
 from app.core.security import require_user
 from app.core.config import get_settings
-from app.models.schemas import SupportMessageRequest
+from app.models.schemas import SupportMessageRequest, ApplyReferralRequest
+from app.services import referral_service
 
 router = APIRouter(tags=["misc"])
+
+
+@router.get("/profile/referral")
+async def referral_overview(user: dict = Depends(require_user)):
+    return await referral_service.get_referral_overview(user)
+
+
+@router.post("/profile/referral/apply")
+async def referral_apply(body: ApplyReferralRequest, user: dict = Depends(require_user)):
+    return await referral_service.apply_referral_code(user, body.code)
 
 
 @router.get("/healthz")

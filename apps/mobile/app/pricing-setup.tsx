@@ -49,5 +49,5 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: "700", marginTop: 12, color: theme.colors.text },
   sub: { color: theme.colors.textSecondary, marginBottom: 24, marginTop: 6 },
   label: { fontWeight: "600", color: theme.colors.textSecondary, marginTop: 12, marginBottom: 6 },
-  input: { height: 52, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, paddingHorizontal: 16, backgroundColor: "#fff", fontSize: 16 },
+  input: { height: 52, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, paddingHorizontal: 16, backgroundColor: theme.colors.backgroundElevated, fontSize: 16, color: theme.colors.text },
 });

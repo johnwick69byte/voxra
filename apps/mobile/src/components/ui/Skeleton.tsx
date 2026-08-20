@@ -48,7 +48,7 @@ export function Skeleton({
     >
       <Animated.View style={[StyleSheet.absoluteFill, shimmer]}>
         <LinearGradient
-          colors={["transparent", "rgba(255,255,255,0.55)", "transparent"]}
+          colors={["transparent", "rgba(45,212,191,0.35)", "transparent"]}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
           style={StyleSheet.absoluteFill}
@@ -78,7 +78,7 @@ const styles = StyleSheet.create({
     gap: 14,
     padding: 14,
     marginBottom: 10,
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.backgroundElevated,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
     borderColor: theme.colors.border,

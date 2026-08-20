@@ -194,14 +194,14 @@ const styles = StyleSheet.create({
   brand: {
     fontFamily: theme.font.display,
     fontSize: 52,
-    color: "#F7F4EF",
+    color: theme.colors.text,
     letterSpacing: -1.4,
   },
   tagline: {
     marginTop: 14,
     fontSize: 17,
     fontFamily: theme.font.body,
-    color: "rgba(247,244,239,0.88)",
+    color: "rgba(243,239,232,0.88)",
     maxWidth: 280,
     lineHeight: 24,
   },
@@ -226,5 +226,5 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.bodySemi,
     color: theme.colors.textSecondary,
   },
-  roleTextActive: { color: "#fff" },
+  roleTextActive: { color: theme.colors.onBrand },
 });

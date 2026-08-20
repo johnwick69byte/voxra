@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     borderRadius: 14,
     padding: 14,
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.backgroundElevated,
     textAlignVertical: "top",
     color: theme.colors.text,
     fontFamily: theme.font.body,

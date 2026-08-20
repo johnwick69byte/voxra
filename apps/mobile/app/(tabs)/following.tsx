@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 64 },
   title: { fontSize: 28, fontWeight: "800", color: theme.colors.brand, paddingHorizontal: 24 },
   empty: { textAlign: "center", color: theme.colors.textMuted, marginTop: 40 },
-  row: { flexDirection: "row", gap: 12, alignItems: "center", backgroundColor: "#fff", padding: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border },
+  row: { flexDirection: "row", gap: 12, alignItems: "center", backgroundColor: theme.colors.glass, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border },
   av: { width: 48, height: 48, borderRadius: 14 },
   name: { fontWeight: "700", color: theme.colors.text, marginBottom: 4 },
 });

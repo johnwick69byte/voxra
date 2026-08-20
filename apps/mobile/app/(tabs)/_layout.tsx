@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet } from "react-native";
+import { Pressable, StyleSheet, Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, {
@@ -38,11 +38,18 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: theme.colors.brand,
+        tabBarActiveTintColor: theme.colors.brandLight,
         tabBarInactiveTintColor: theme.colors.textMuted,
         tabBarStyle: {
           backgroundColor: theme.colors.backgroundElevated,
           borderTopColor: theme.colors.border,
+          borderTopWidth: 1,
+          height: Platform.OS === "ios" ? 88 : 64,
+          paddingTop: 6,
+        },
+        tabBarLabelStyle: {
+          fontFamily: theme.font.bodySemi,
+          fontSize: 11,
         },
         tabBarButton: (props) => <ScaleTabButton {...props} />,
       }}
@@ -62,6 +69,13 @@ export default function TabsLayout() {
           title: isCreator ? "Calls" : "Following",
           href: isCreator ? null : undefined,
           tabBarIcon: ({ color, size }) => <Ionicons name="heart" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="referral"
+        options={{
+          title: "Refer",
+          tabBarIcon: ({ color, size }) => <Ionicons name="gift" size={size} color={color} />,
         }}
       />
       <Tabs.Screen

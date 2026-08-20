@@ -51,6 +51,11 @@ async def me(user: dict = Depends(require_user)):
     if user.get("user_type") == "creator":
         profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
     wallet = await db.wallets.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    from app.services import referral_service
+
+    if not user.get("referral_code"):
+        code = await referral_service.ensure_referral_code(user)
+        user = {**user, "referral_code": code}
     return {"success": True, "user": user, "creator_profile": profile, "wallet": wallet}
 
 

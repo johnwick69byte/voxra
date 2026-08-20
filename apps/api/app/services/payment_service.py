@@ -131,6 +131,9 @@ async def process_order_success(order_id: str) -> dict:
     amount = float(claimed["amount"])
     user_id = claimed["user_id"]
     await wallet_service.credit_balance(user_id, amount)
+    from app.services import referral_service
+
+    await referral_service.maybe_pay_first_recharge_bonus(user_id)
     await db.transactions.update_one(
         {"transaction_id": claimed["transaction_id"]},
         {

@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, ViewStyle } from "react-native";
 import { ReactNode } from "react";
 import { theme } from "../../theme/tokens";
 
-/** Interaction-only card — used for tappable rows/packs, not decorative chrome. */
+/** Glass card — tappable rows/packs on dark. */
 export function Card({
   children,
   onPress,
@@ -16,7 +16,14 @@ export function Card({
     return <Pressable style={[styles.card, style]}>{children}</Pressable>;
   }
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed, style]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.card,
+        pressed && styles.pressed,
+        style,
+      ]}
+    >
       {children}
     </Pressable>
   );
@@ -24,11 +31,11 @@ export function Card({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: theme.colors.backgroundElevated,
+    backgroundColor: theme.colors.glass,
     borderRadius: theme.radius.lg,
     padding: 14,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
-  pressed: { opacity: 0.88, transform: [{ scale: 0.99 }] },
+  pressed: { opacity: 0.9, transform: [{ scale: theme.motion.cardPress }] },
 });

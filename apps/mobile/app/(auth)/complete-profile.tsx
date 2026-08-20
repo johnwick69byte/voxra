@@ -1,36 +1,74 @@
 import { useState } from "react";
-import { View, Text, TextInput, StyleSheet } from "react-native";
+import { View, StyleSheet, Image, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import Toast from "react-native-toast-message";
 import { authAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
+import { AppText, Input } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
 
 export default function CompleteProfile() {
   const router = useRouter();
-  const { user, refreshMe } = useAuthStore();
+  const { user, setSession, token, refreshMe } = useAuthStore();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [referral, setReferral] = useState("");
+  const [bio, setBio] = useState("");
+  const [picture, setPicture] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
+  const isCreator = user?.user_type === "creator";
+
+  const pickAvatar = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Toast.show({ type: "error", text1: "Photo permission required" });
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.7,
+      base64: true,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    if (asset.base64) {
+      setPicture(`data:image/jpeg;base64,${asset.base64}`);
+    } else if (asset.uri) {
+      setPicture(asset.uri);
+    }
+  };
 
   const submit = async () => {
-    if (!name.trim()) {
-      Toast.show({ type: "error", text1: "Name is required" });
+    if (name.trim().length < 2) {
+      Toast.show({ type: "error", text1: "Enter your display name" });
       return;
     }
     setLoading(true);
     try {
-      await authAPI.completeProfile({
+      const userType = user?.user_type || "user";
+      const res = await authAPI.completeProfile({
         name: name.trim(),
         username: username.trim() || undefined,
         referral_code: referral.trim() || undefined,
-        user_type: user?.user_type || "user",
+        user_type: userType,
+        picture,
+        bio: isCreator ? bio.trim() || undefined : undefined,
       });
-      await refreshMe();
-      if (user?.user_type === "creator") router.replace("/pricing-setup");
-      else router.replace("/");
+      const updated = res.data.user;
+      if (token && updated) {
+        await setSession(token, updated);
+      } else {
+        await refreshMe();
+      }
+      if (updated?.user_type === "creator" || userType === "creator") {
+        router.replace("/pricing-setup");
+      } else {
+        router.replace("/");
+      }
     } catch (e: any) {
       Toast.show({
         type: "error",
@@ -43,35 +81,83 @@ export default function CompleteProfile() {
   };
 
   return (
-    <View style={styles.wrap}>
-      <Text style={styles.brand}>Voxora</Text>
-      <Text style={styles.title}>Almost there</Text>
-      <Text style={styles.sub}>A short profile so creators and fans know who you are.</Text>
-      <Text style={styles.label}>Display name</Text>
-      <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor={theme.colors.textMuted} />
-      <Text style={styles.label}>Username (optional)</Text>
-      <TextInput style={styles.input} autoCapitalize="none" value={username} onChangeText={setUsername} placeholder="unique_handle" placeholderTextColor={theme.colors.textMuted} />
-      <Text style={styles.label}>Referral code (optional)</Text>
-      <TextInput style={styles.input} autoCapitalize="characters" value={referral} onChangeText={setReferral} placeholder="ABCD1234" placeholderTextColor={theme.colors.textMuted} />
+    <ScrollView
+      style={styles.wrap}
+      contentContainerStyle={{ paddingBottom: 40 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <AppText style={styles.brand}>Voxora</AppText>
+      <AppText variant="title" style={{ marginTop: 8 }}>
+        Almost there
+      </AppText>
+      <AppText variant="subtitle" style={{ marginTop: 6, marginBottom: 20 }}>
+        A short profile so creators and fans know who you are.
+      </AppText>
+
+      <Pressable onPress={pickAvatar} style={styles.avatarWrap}>
+        {picture ? (
+          <Image source={{ uri: picture }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarEmpty]}>
+            <AppText color="#fff" style={{ fontFamily: theme.font.bodySemi }}>
+              Add photo
+            </AppText>
+          </View>
+        )}
+      </Pressable>
+
+      <Input label="Display name" value={name} onChangeText={setName} placeholder="Your name" />
+      <Input
+        label="Username (optional)"
+        autoCapitalize="none"
+        value={username}
+        onChangeText={setUsername}
+        placeholder="unique_handle"
+      />
+      {isCreator ? (
+        <Input
+          label="Bio (optional)"
+          value={bio}
+          onChangeText={setBio}
+          placeholder="Tell fans about yourself"
+          multiline
+          style={{ height: 88, textAlignVertical: "top", paddingTop: 12 }}
+        />
+      ) : null}
+      <Input
+        label="Referral code (optional)"
+        autoCapitalize="characters"
+        value={referral}
+        onChangeText={setReferral}
+        placeholder="ABCD1234"
+      />
       <PrimaryButton label="Continue" onPress={submit} loading={loading} style={{ marginTop: 24 }} />
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, padding: 24, paddingTop: 72, backgroundColor: theme.colors.background },
-  brand: { fontSize: 28, fontWeight: "800", color: theme.colors.brand, marginBottom: 8 },
-  title: { fontSize: 26, fontWeight: "700", color: theme.colors.text },
-  sub: { color: theme.colors.textSecondary, marginTop: 6, marginBottom: 24, lineHeight: 22 },
-  label: { fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary, marginBottom: 6, marginTop: 10 },
-  input: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    height: 52,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: theme.colors.text,
+  wrap: {
+    flex: 1,
+    padding: 24,
+    paddingTop: 72,
+    backgroundColor: theme.colors.background,
+  },
+  brand: {
+    fontFamily: theme.font.display,
+    fontSize: 32,
+    color: theme.colors.brand,
+  },
+  avatarWrap: { alignSelf: "center", marginBottom: 8 },
+  avatar: {
+    width: 96,
+    height: 96,
+    borderRadius: 32,
+    backgroundColor: theme.colors.surface,
+  },
+  avatarEmpty: {
+    backgroundColor: theme.colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

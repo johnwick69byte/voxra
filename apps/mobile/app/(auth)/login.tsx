@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
 } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
@@ -14,6 +15,8 @@ import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText, Input } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
+
+const RESEND_COOLDOWN_S = 30;
 
 function formatPhone(raw: string) {
   const d = raw.replace(/\D/g, "").slice(0, 10);
@@ -30,18 +33,45 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [role, setRole] = useState<"user" | "creator">("user");
   const [devHint, setDevHint] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const digits = phone.replace(/\D/g, "");
+  const otpDigits = otp.replace(/\D/g, "");
+  const phoneOk = digits.length === 10 && "6789".includes(digits[0]);
+  const otpOk = otpDigits.length === 6;
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const startCooldown = () => {
+    setCooldown(RESEND_COOLDOWN_S);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setCooldown((c) => {
+        if (c <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+  };
 
   const send = async () => {
-    if (digits.length < 10) {
+    if (!phoneOk) {
       Toast.show({ type: "error", text1: "Enter a valid 10-digit mobile" });
       return;
     }
+    if (cooldown > 0) return;
     setLoading(true);
     try {
       const res = await authAPI.sendOtp(digits);
       setSent(true);
+      startCooldown();
       const isDev = res.data?.dev === true;
       setDevHint(isDev && __DEV__);
       Toast.show({
@@ -50,9 +80,10 @@ export default function LoginScreen() {
         text2: isDev && __DEV__ ? "Dev mode — check API logs" : "Check your SMS",
       });
     } catch (e: any) {
+      const status = e?.response?.status;
       Toast.show({
         type: "error",
-        text1: "Failed to send OTP",
+        text1: status === 429 ? "Too many requests" : "Failed to send OTP",
         text2: e?.response?.data?.detail || e?.message,
       });
     } finally {
@@ -61,14 +92,23 @@ export default function LoginScreen() {
   };
 
   const verify = async () => {
+    if (!otpOk) {
+      Toast.show({ type: "error", text1: "Enter the 6-digit OTP" });
+      return;
+    }
     setLoading(true);
     try {
-      const res = await authAPI.verifyOtp(digits, otp, role);
+      const res = await authAPI.verifyOtp(digits, otpDigits, role);
       await setSession(res.data.token, res.data.user);
       if (!res.data.user.profile_complete) router.replace("/(auth)/complete-profile");
       else router.replace("/(tabs)/browse");
-    } catch {
-      Toast.show({ type: "error", text1: "Invalid OTP" });
+    } catch (e: any) {
+      const status = e?.response?.status;
+      Toast.show({
+        type: "error",
+        text1: status === 429 ? "Too many attempts" : "Invalid OTP",
+        text2: e?.response?.data?.detail,
+      });
     } finally {
       setLoading(false);
     }
@@ -85,7 +125,7 @@ export default function LoginScreen() {
           Instant voice & video with creators you love.
         </AppText>
       </LinearGradient>
-      <View style={styles.sheet}>
+      <Animated.View entering={FadeInDown.duration(420)} style={styles.sheet}>
         <View style={styles.roleRow}>
           {(["user", "creator"] as const).map((r) => (
             <Pressable
@@ -93,9 +133,7 @@ export default function LoginScreen() {
               onPress={() => setRole(r)}
               style={[styles.roleChip, role === r && styles.roleActive]}
             >
-              <AppText
-                style={[styles.roleText, role === r && styles.roleTextActive]}
-              >
+              <AppText style={[styles.roleText, role === r && styles.roleTextActive]}>
                 {r === "user" ? "Fan" : "Creator"}
               </AppText>
             </Pressable>
@@ -114,8 +152,8 @@ export default function LoginScreen() {
             label="OTP"
             keyboardType="number-pad"
             placeholder="6-digit code"
-            value={otp}
-            onChangeText={setOtp}
+            value={otpDigits}
+            onChangeText={(t) => setOtp(t.replace(/\D/g, "").slice(0, 6))}
             maxLength={6}
           />
         )}
@@ -128,16 +166,20 @@ export default function LoginScreen() {
           label={sent ? "Verify & continue" : "Send OTP"}
           onPress={sent ? verify : send}
           loading={loading}
-          style={{ marginTop: 20 }}
+          style={{ marginTop: 20, opacity: sent ? (otpOk ? 1 : 0.5) : phoneOk ? 1 : 0.5 }}
         />
         {sent ? (
-          <Pressable onPress={send} style={{ marginTop: 14, alignItems: "center" }}>
+          <Pressable
+            onPress={send}
+            disabled={cooldown > 0 || loading}
+            style={{ marginTop: 14, alignItems: "center", opacity: cooldown > 0 ? 0.5 : 1 }}
+          >
             <AppText variant="caption" color={theme.colors.brand}>
-              Resend code
+              {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
             </AppText>
           </Pressable>
         ) : null}
-      </View>
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 }

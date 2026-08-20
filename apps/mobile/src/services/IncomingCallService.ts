@@ -1,21 +1,34 @@
 /**
  * Incoming call notifications — Notifee full-screen CALL category (Android).
  * iOS CallKit via CallKeepService when native module is present.
+ * Lazy-loads Notifee so Expo Go can boot without native binaries.
  */
-import notifee, {
-  AndroidImportance,
-  AndroidCategory,
-  AndroidVisibility,
-  AndroidColor,
-  EventType,
-} from "@notifee/react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { reportIncomingCallToCallKit as displayCallKit, endCallKeepCall } from "./CallKeepService";
+import { hasNotifeeNative } from "./nativeAvailability";
 
 const PENDING_CALL_KEY = "pending_incoming_call";
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000/api";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://voxra-dkfe.onrender.com/api";
+
+function getNotifee(): any | null {
+  if (!hasNotifeeNative()) return null;
+  try {
+    const mod = require("@notifee/react-native");
+    return mod.default || mod;
+  } catch {
+    return null;
+  }
+}
 
 export async function showIncomingCallNotification(data: Record<string, any>) {
+  const notifee = getNotifee();
+  if (!notifee) {
+    console.warn("[incoming] Notifee unavailable — open in-app incoming screen via socket only");
+    return;
+  }
+  const AndroidImportance = notifee.AndroidImportance || require("@notifee/react-native").AndroidImportance;
+  const { AndroidCategory, AndroidVisibility, AndroidColor } = require("@notifee/react-native");
+
   const channelId = await notifee.createChannel({
     id: "incoming_calls_v1",
     name: "Incoming Calls",
@@ -63,10 +76,11 @@ export async function showIncomingCallNotification(data: Record<string, any>) {
 }
 
 export async function cancelCallNotification(callId?: string) {
+  const notifee = getNotifee();
   if (callId) {
-    await notifee.cancelNotification(`call_${callId}`);
+    if (notifee) await notifee.cancelNotification(`call_${callId}`);
     await endCallKeepCall(callId);
-  } else {
+  } else if (notifee) {
     await notifee.cancelAllNotifications();
   }
 }
@@ -100,7 +114,10 @@ export async function declineCallFromNotification(callId: string, declineToken: 
 }
 
 export function registerNotifeeForeground() {
-  return notifee.onForegroundEvent(async ({ type, detail }) => {
+  const notifee = getNotifee();
+  if (!notifee) return () => {};
+  const { EventType } = require("@notifee/react-native");
+  return notifee.onForegroundEvent(async ({ type, detail }: any) => {
     const data = detail.notification?.data || {};
     if (data.type !== "incoming_call") return;
     if (type === EventType.ACTION_PRESS && detail.pressAction?.id === "decline") {

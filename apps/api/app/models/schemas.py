@@ -1,8 +1,9 @@
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
+import re
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class UserType(str, Enum):
@@ -34,12 +35,38 @@ class SendOtpRequest(BaseModel):
     phone: str
     country_code: str = "+91"
 
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        digits = re.sub(r"\D", "", v or "")
+        if len(digits) != 10:
+            raise ValueError("Phone must be a 10-digit mobile number")
+        if digits[0] not in "6789":
+            raise ValueError("Enter a valid Indian mobile number")
+        return digits
+
 
 class VerifyOtpRequest(BaseModel):
     phone: str
     country_code: str = "+91"
     otp: str
     user_type: Optional[UserType] = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        digits = re.sub(r"\D", "", v or "")
+        if len(digits) != 10:
+            raise ValueError("Phone must be a 10-digit mobile number")
+        return digits
+
+    @field_validator("otp")
+    @classmethod
+    def validate_otp(cls, v: str) -> str:
+        code = re.sub(r"\D", "", v or "")
+        if len(code) != 6:
+            raise ValueError("OTP must be 6 digits")
+        return code
 
 
 class CompleteProfileRequest(BaseModel):
@@ -48,6 +75,21 @@ class CompleteProfileRequest(BaseModel):
     picture: Optional[str] = None
     user_type: UserType = UserType.USER
     referral_code: Optional[str] = None
+    bio: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        name = (v or "").strip()
+        if len(name) < 2:
+            raise ValueError("Name must be at least 2 characters")
+        return name
+
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    username: Optional[str] = None
+    picture: Optional[str] = None
     bio: Optional[str] = None
 
 

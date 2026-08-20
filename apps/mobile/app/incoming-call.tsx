@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   View,
-  Text,
   StyleSheet,
   Image,
   Animated,
@@ -9,16 +8,20 @@ import {
   Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Audio } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
 import Toast from "react-native-toast-message";
 import { callsAPI } from "../src/services/api";
 import { PrimaryButton } from "../src/components/PrimaryButton";
+import { AppText } from "../src/components/ui";
 import { cancelCallNotification } from "../src/services/IncomingCallService";
+import { playRingtone, stopRingtone } from "../src/services/ringtone";
+import { ensureCallDisclaimer } from "../src/services/callDisclaimer";
+import { useSecureCallScreen } from "../src/hooks/useSecureCallScreen";
 import { theme } from "../src/theme/tokens";
 import { useCallStore } from "../src/store/callStore";
 
 export default function IncomingCallScreen() {
+  useSecureCallScreen(true);
   const router = useRouter();
   const params = useLocalSearchParams();
   const setIncoming = useCallStore((s) => s.setIncoming);
@@ -36,16 +39,25 @@ export default function IncomingCallScreen() {
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.08, duration: theme.motion.callPulse / 2, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: theme.motion.callPulse / 2, useNativeDriver: true }),
+        Animated.timing(pulse, {
+          toValue: 1.08,
+          duration: theme.motion.callPulse / 2,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: theme.motion.callPulse / 2,
+          useNativeDriver: true,
+        }),
       ])
     ).start();
     Vibration.vibrate([0, 500, 400, 500], true);
-    Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: true }).catch(() => {});
+    playRingtone(true);
     const t = setInterval(() => setCountdown((c) => Math.max(0, c - 1)), 1000);
     return () => {
       Vibration.cancel();
       clearInterval(t);
+      stopRingtone();
     };
   }, []);
 
@@ -55,13 +67,18 @@ export default function IncomingCallScreen() {
 
   useEffect(() => {
     if (countdown === 0) {
+      stopRingtone();
       setIncoming(null);
       router.back();
     }
   }, [countdown]);
 
   const accept = async () => {
+    const agreed = await ensureCallDisclaimer();
+    if (!agreed) return;
     setBusy(true);
+    await stopRingtone();
+    Vibration.cancel();
     try {
       await cancelCallNotification(callId);
       const res = await callsAPI.accept(callId);
@@ -89,6 +106,8 @@ export default function IncomingCallScreen() {
 
   const decline = async () => {
     setBusy(true);
+    await stopRingtone();
+    Vibration.cancel();
     try {
       await cancelCallNotification(callId);
       await callsAPI.reject(callId, declineToken);
@@ -103,19 +122,24 @@ export default function IncomingCallScreen() {
 
   return (
     <LinearGradient colors={[...theme.gradients.call]} style={styles.wrap}>
-      <Text style={styles.brand}>Voxora</Text>
-      <Text style={styles.type}>Incoming {callType.toLowerCase()} call</Text>
+      <AppText style={styles.brand}>Voxora</AppText>
+      <AppText style={styles.type}>Incoming {callType.toLowerCase()} call</AppText>
       <Animated.View style={{ transform: [{ scale: pulse }] }}>
         <Image
           source={{ uri: String(params.callerPicture || "https://i.pravatar.cc/200") }}
           style={styles.avatar}
         />
       </Animated.View>
-      <Text style={styles.name}>{callerName}</Text>
-      <Text style={styles.count}>{countdown}s</Text>
+      <AppText style={styles.name}>{callerName}</AppText>
+      <AppText style={styles.count}>{countdown}s</AppText>
       <View style={styles.actions}>
         <PrimaryButton label="Decline" variant="danger" onPress={decline} loading={busy} style={{ flex: 1 }} />
-        <PrimaryButton label="Accept" onPress={accept} loading={busy} style={{ flex: 1, backgroundColor: theme.colors.callGreen }} />
+        <PrimaryButton
+          label="Accept"
+          onPress={accept}
+          loading={busy}
+          style={{ flex: 1, backgroundColor: theme.colors.callGreen }}
+        />
       </View>
     </LinearGradient>
   );
@@ -123,10 +147,42 @@ export default function IncomingCallScreen() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28 },
-  brand: { position: "absolute", top: Platform.OS === "ios" ? 64 : 40, fontSize: 22, fontFamily: "Fraunces_700Bold", color: "#F7F4EF" },
-  type: { color: "rgba(247,244,239,0.7)", marginBottom: 24, fontFamily: "Manrope_500Medium" },
-  avatar: { width: 140, height: 140, borderRadius: 70, borderWidth: 3, borderColor: theme.colors.accent },
-  name: { fontSize: 28, fontFamily: "Fraunces_600SemiBold", color: "#fff", marginTop: 24 },
-  count: { color: theme.colors.accent, marginTop: 8, fontFamily: "Manrope_600SemiBold" },
-  actions: { flexDirection: "row", gap: 16, position: "absolute", bottom: 56, left: 28, right: 28 },
+  brand: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 64 : 40,
+    fontFamily: theme.font.display,
+    fontSize: 22,
+    color: "#F7F4EF",
+  },
+  type: {
+    color: "rgba(247,244,239,0.7)",
+    marginBottom: 24,
+    fontFamily: theme.font.body,
+  },
+  avatar: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    borderWidth: 3,
+    borderColor: theme.colors.accent,
+  },
+  name: {
+    fontSize: 28,
+    fontFamily: theme.font.displayMedium,
+    color: "#fff",
+    marginTop: 24,
+  },
+  count: {
+    color: theme.colors.accent,
+    marginTop: 8,
+    fontFamily: theme.font.bodySemi,
+  },
+  actions: {
+    flexDirection: "row",
+    gap: 16,
+    position: "absolute",
+    bottom: 56,
+    left: 28,
+    right: 28,
+  },
 });

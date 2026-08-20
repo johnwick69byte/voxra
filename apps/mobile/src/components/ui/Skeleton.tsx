@@ -5,8 +5,10 @@ import Animated, {
   withRepeat,
   withTiming,
   Easing,
+  interpolate,
 } from "react-native-reanimated";
 import { useEffect } from "react";
+import { LinearGradient } from "expo-linear-gradient";
 import { theme } from "../../theme/tokens";
 
 export function Skeleton({
@@ -20,24 +22,39 @@ export function Skeleton({
   radius?: number;
   style?: ViewStyle;
 }) {
-  const opacity = useSharedValue(0.4);
+  const progress = useSharedValue(0);
   useEffect(() => {
-    opacity.value = withRepeat(
-      withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+    progress.value = withRepeat(
+      withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
       -1,
-      true
+      false
     );
   }, []);
-  const anim = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const shimmer = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateX: interpolate(progress.value, [0, 1], [-80, 120]),
+      },
+    ],
+    opacity: interpolate(progress.value, [0, 0.5, 1], [0.35, 0.7, 0.35]),
+  }));
   return (
-    <Animated.View
+    <View
       style={[
         styles.base,
-        { height, width: width as any, borderRadius: radius },
-        anim,
+        { height, width: width as any, borderRadius: radius, overflow: "hidden" },
         style,
       ]}
-    />
+    >
+      <Animated.View style={[StyleSheet.absoluteFill, shimmer]}>
+        <LinearGradient
+          colors={["transparent", "rgba(255,255,255,0.55)", "transparent"]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+    </View>
   );
 }
 

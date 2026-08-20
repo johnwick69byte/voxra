@@ -31,6 +31,8 @@ export async function ensureCameraPermission(): Promise<boolean> {
 
 export async function ensureNotificationPermission(): Promise<boolean> {
   try {
+    const { NativeModules } = require("react-native");
+    if (!NativeModules?.RNFBAppModule) return true;
     const messagingModule = require("@react-native-firebase/messaging");
     const messaging = messagingModule.default || messagingModule;
     const auth = await messaging().hasPermission();

@@ -1,11 +1,22 @@
 /**
  * Keep the OS from killing the app during LIVE calls (Android).
  * Uses Notifee foreground service — works in EAS/dev builds with Notifee.
+ * No-ops in Expo Go.
  */
-import notifee, { AndroidImportance, AndroidCategory } from "@notifee/react-native";
 import { Platform } from "react-native";
+import { hasNotifeeNative } from "./nativeAvailability";
 
 const FGS_ID = "voxora_call_fgs";
+
+function getNotifee(): any | null {
+  if (!hasNotifeeNative()) return null;
+  try {
+    const mod = require("@notifee/react-native");
+    return mod.default || mod;
+  } catch {
+    return null;
+  }
+}
 
 export async function startCallForegroundService(opts: {
   callId: string;
@@ -13,7 +24,10 @@ export async function startCallForegroundService(opts: {
   callType: string;
 }) {
   if (Platform.OS !== "android") return;
+  const notifee = getNotifee();
+  if (!notifee) return;
   try {
+    const { AndroidImportance, AndroidCategory } = require("@notifee/react-native");
     const channelId = await notifee.createChannel({
       id: "ongoing_calls",
       name: "Ongoing Calls",
@@ -39,6 +53,8 @@ export async function startCallForegroundService(opts: {
 
 export async function stopCallForegroundService() {
   if (Platform.OS !== "android") return;
+  const notifee = getNotifee();
+  if (!notifee) return;
   try {
     await notifee.stopForegroundService();
     await notifee.cancelNotification(FGS_ID);

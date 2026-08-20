@@ -1,19 +1,48 @@
 # Firebase / FCM device QA (P0)
 
+## Critical: two different JSON files
+
+Do **not** reuse the Firebase Admin service-account JSON as the mobile Android client file.
+
+| File | Who uses it | What it is | Where |
+|------|-------------|------------|--------|
+| **Service account** (`*-firebase-adminsdk-*.json`) | API on Render | Private key to **send** FCM | Render Secret File → `FIREBASE_CREDENTIALS_PATH` |
+| **`google-services.json`** | Mobile Android app | Client config (project_id, mobilesdk_app_id, api_key) | `apps/mobile/google-services.json` (EAS build) |
+| **`GoogleService-Info.plist`** | Mobile iOS app | Client config | `apps/mobile/` + Xcode capabilities |
+
+If you put the **admin** JSON into `google-services.json`, FCM registration and data-only delivery will fail. Regenerate the Android app config from Firebase Console → Project settings → Your apps → Android → Download `google-services.json`.
+
 ## Credentials to place
 
-### Backend (`apps/api`)
-1. Download Firebase service account JSON
-2. Save as e.g. `apps/api/secrets/firebase-adminsdk.json` (do not commit)
-3. Set in `.env`:
+### Backend (`apps/api` / Render)
+1. Download Firebase **service account** JSON (Project settings → Service accounts → Generate new private key)
+2. Upload as Render **Secret File** (e.g. `/etc/secrets/firebase-adminsdk.json`)
+3. Set env:
    ```
-   FIREBASE_CREDENTIALS_PATH=./secrets/firebase-adminsdk.json
+   FIREBASE_CREDENTIALS_PATH=/etc/secrets/firebase-adminsdk.json
    ```
+4. Confirm admin Live Ops / health shows FCM send success (not credential errors)
 
 ### Mobile (`apps/mobile`)
-1. Android: put `google-services.json` in project root (referenced from `app.json`)
-2. iOS: `GoogleService-Info.plist` + enable Push Notifications + Background Modes (audio, voip, remote-notification)
+1. Android: put **client** `google-services.json` in project root (referenced from `app.json`)
+2. iOS: `GoogleService-Info.plist` + Push Notifications + Background Modes (audio, voip, remote-notification)
 3. Rebuild with EAS / `expo run:android` — **Expo Go cannot receive data-only FCM + Notifee full-screen**
+
+## Killed-state ring checklist
+
+| Step | Check |
+|------|--------|
+| 1 | Creator logged in once so `POST /api/profile/push-token` stored FCM token |
+| 2 | Force-stop / swipe-kill creator app |
+| 3 | Fan initiates call |
+| 4 | API logs FCM send OK (no `messaging/invalid-argument` from bad credentials) |
+| 5 | Device shows Notifee full-screen (`incoming_calls_v1`, CALL category) |
+| 6 | **Accept** with JS cold: `index.js` `notifee.onBackgroundEvent` saves pending call → app opens → accept path |
+| 7 | **Decline** hits `POST /calls/{id}/reject-token` with `decline_token` |
+| 8 | Fan cancel while ringing dismisses notification |
+| 9 | 45s no answer → MISSED + notification cancelled |
+
+Background registration lives in [`apps/mobile/index.js`](../apps/mobile/index.js) (must stay the Expo entry — handlers before `expo-router/entry`).
 
 ## Expected behavior checklist
 
@@ -41,7 +70,7 @@
 
 ## Smoke commands
 ```bash
-# After API running with Firebase JSON:
+# After API running with Firebase Admin JSON on Render:
 # Initiate call to a device with registered FCM token and verify Logcat:
 # [IncomingCallService] Notification displayed
 # [FGS] start / stop around LIVE

@@ -5,6 +5,7 @@ from app.core.security import require_user
 from app.models.schemas import (
     CompleteProfileRequest,
     SendOtpRequest,
+    UpdateProfileRequest,
     VerifyOtpRequest,
 )
 from app.services import auth_service
@@ -20,11 +21,18 @@ async def send_otp(body: SendOtpRequest):
     allowed = await check_rate_limit(f"otp:send:{phone_key}", limit=5, window_seconds=600)
     if not allowed:
         raise HTTPException(429, "Too many OTP requests. Try again later.")
-    return await auth_service.send_otp(body.country_code, body.phone)
+    result = await auth_service.send_otp(body.country_code, body.phone)
+    if not result.get("success"):
+        raise HTTPException(502, result.get("message", "Could not send OTP"))
+    return result
 
 
 @router.post("/otp/verify")
 async def verify_otp(body: VerifyOtpRequest):
+    phone_key = f"{body.country_code}{body.phone}".replace(" ", "")
+    allowed = await check_rate_limit(f"otp:verify:{phone_key}", limit=10, window_seconds=600)
+    if not allowed:
+        raise HTTPException(429, "Too many OTP attempts. Try again later.")
     result = await auth_service.verify_otp(
         body.country_code,
         body.phone,
@@ -97,6 +105,39 @@ async def complete_profile(body: CompleteProfileRequest, user: dict = Depends(re
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return {"success": True, "user": updated}
+
+
+@router.post("/update-profile")
+async def update_profile(body: UpdateProfileRequest, user: dict = Depends(require_user)):
+    db = get_db()
+    updates: dict = {"updated_at": datetime.now(timezone.utc)}
+    if body.name is not None:
+        name = body.name.strip()
+        if len(name) < 2:
+            raise HTTPException(400, "Name must be at least 2 characters")
+        updates["name"] = name
+    if body.picture is not None:
+        updates["picture"] = body.picture
+    if body.username is not None:
+        username = body.username.strip().lower()
+        if username:
+            exists = await db.users.find_one({"username": username, "user_id": {"$ne": user["user_id"]}})
+            if exists:
+                raise HTTPException(409, "Username taken")
+            updates["username"] = username
+    if body.bio is not None and user.get("user_type") == "creator":
+        await db.creator_profiles.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"bio": body.bio.strip()}},
+            upsert=True,
+        )
+    if len(updates) > 1:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
+    updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    profile = None
+    if updated and updated.get("user_type") == "creator":
+        profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return {"success": True, "user": updated, "creator_profile": profile}
 
 
 @router.post("/delete-account")

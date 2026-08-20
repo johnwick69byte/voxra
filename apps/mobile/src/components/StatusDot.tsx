@@ -1,5 +1,11 @@
+import { useEffect } from "react";
 import { View, Text, StyleSheet } from "react-native";
-import Animated, { FadeIn } from "react-native-reanimated";
+import Animated, {
+  FadeIn,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { theme } from "../theme/tokens";
 
 const colorMap: Record<string, string> = {
@@ -11,9 +17,18 @@ const colorMap: Record<string, string> = {
 
 export function StatusDot({ status, label }: { status?: string; label?: boolean }) {
   const c = colorMap[status || "OFFLINE"] || theme.colors.offline;
+  const progress = useSharedValue(1);
+  useEffect(() => {
+    progress.value = 0;
+    progress.value = withTiming(1, { duration: theme.motion.statusFade });
+  }, [status]);
+  const anim = useAnimatedStyle(() => ({
+    opacity: 0.55 + progress.value * 0.45,
+    transform: [{ scale: 0.85 + progress.value * 0.15 }],
+  }));
   return (
     <Animated.View entering={FadeIn.duration(theme.motion.statusFade)} style={styles.row}>
-      <View style={[styles.dot, { backgroundColor: c }]} />
+      <Animated.View style={[styles.dot, { backgroundColor: c }, anim]} />
       {label !== false && (
         <Text style={[styles.text, { color: c, fontFamily: theme.font.bodySemi }]}>
           {status || "OFFLINE"}

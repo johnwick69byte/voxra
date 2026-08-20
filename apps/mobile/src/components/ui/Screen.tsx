@@ -1,6 +1,6 @@
 import { View, StyleSheet, ViewStyle, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { theme } from "../theme/tokens";
+import { theme } from "../../theme/tokens";
 import { ReactNode } from "react";
 
 export function Screen({

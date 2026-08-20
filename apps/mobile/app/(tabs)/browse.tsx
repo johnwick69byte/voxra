@@ -1,15 +1,18 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   FlatList,
   StyleSheet,
   RefreshControl,
   ActivityIndicator,
+  TextInput,
+  Pressable,
+  ScrollView,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import Animated, { FadeIn } from "react-native-reanimated";
-import { creatorsAPI, callsAPI, walletAPI } from "../../src/services/api";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
+import { creatorsAPI, callsAPI, walletAPI, authAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
 import { StatusDot } from "../../src/components/StatusDot";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
@@ -23,6 +26,14 @@ import {
 import { theme } from "../../src/theme/tokens";
 import Toast from "react-native-toast-message";
 
+const SORTS = [
+  { id: "popular", label: "Popular" },
+  { id: "price_asc", label: "Price ↑" },
+  { id: "price_desc", label: "Price ↓" },
+] as const;
+
+const STATUS_FILTERS = ["ALL", "ACTIVE", "BUSY", "OFFLINE", "DND"] as const;
+
 export default function BrowseScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
@@ -35,15 +46,32 @@ export default function BrowseScreen() {
   const [hasMore, setHasMore] = useState(false);
   const [dnd, setDnd] = useState(false);
   const [earnings, setEarnings] = useState(0);
+  const [query, setQuery] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [sort, setSort] = useState<(typeof SORTS)[number]["id"]>("popular");
+  const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("ALL");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedQ(query.trim()), 350);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query]);
 
   const loadPage = async (reset = false) => {
     if (isCreator) {
       setRefreshing(true);
       try {
-        const bal = await walletAPI.balance();
+        const [bal, hist, me] = await Promise.all([
+          walletAPI.balance(),
+          callsAPI.history(),
+          authAPI.me(),
+        ]);
         setEarnings(bal.data.earnings_balance || 0);
-        const hist = await callsAPI.history();
         setCreators(hist.data.calls || []);
+        setDnd(!!me.data?.creator_profile?.is_dnd);
       } catch (e: any) {
         Toast.show({ type: "error", text1: "Could not load", text2: e.message });
       } finally {
@@ -62,8 +90,13 @@ export default function BrowseScreen() {
       const res = await creatorsAPI.browse({
         cursor: reset ? undefined : cursor || undefined,
         limit: 20,
+        sort,
+        q: debouncedQ || undefined,
       });
-      const page = res.data.creators || [];
+      let page = res.data.creators || [];
+      if (statusFilter !== "ALL") {
+        page = page.filter((c: any) => c.status === statusFilter);
+      }
       setCreators((prev) => (reset ? page : [...prev, ...page]));
       setCursor(res.data.next_cursor || null);
       setHasMore(!!res.data.has_more);
@@ -78,11 +111,13 @@ export default function BrowseScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      setCursor(null);
       loadPage(true);
-    }, [isCreator])
+    }, [isCreator, sort, debouncedQ, statusFilter])
   );
 
   if (isCreator) {
+    const spark = [0.35, 0.55, 0.4, 0.7, 0.5, 0.85, Math.min(1, earnings / Math.max(earnings, 500) || 0.6)];
     return (
       <View style={styles.wrap}>
         <LinearGradient colors={[...theme.gradients.soft]} style={styles.header}>
@@ -90,20 +125,32 @@ export default function BrowseScreen() {
           <AppText variant="subtitle" style={{ marginTop: 8 }}>
             Hi {user?.name || "Creator"}
           </AppText>
-          <AppText style={styles.earn}>₹{earnings.toFixed(0)}</AppText>
-          <AppText variant="caption">Earnings available</AppText>
-          <PrimaryButton
-            label={dnd ? "Go Available" : "Enable DND"}
-            onPress={async () => {
-              const res = await creatorsAPI.toggleDnd();
-              setDnd(res.data.is_dnd);
-              Toast.show({
-                type: "success",
-                text1: res.data.is_dnd ? "DND on" : "You're available — followers notified",
-              });
-            }}
-            style={{ marginTop: 16 }}
-          />
+          <Animated.View entering={FadeInDown.duration(400)}>
+            <AppText style={styles.earn}>₹{earnings.toFixed(0)}</AppText>
+            <AppText variant="caption">Creator earnings (after ~15% fee)</AppText>
+            <View style={styles.sparkRow}>
+              {spark.map((h, i) => (
+                <View key={i} style={[styles.sparkBar, { height: 8 + h * 28 }]} />
+              ))}
+            </View>
+          </Animated.View>
+          <View style={styles.dndWrap}>
+            <PrimaryButton
+              label={dnd ? "You're on DND" : "You're Available"}
+              onPress={async () => {
+                const res = await creatorsAPI.toggleDnd();
+                setDnd(res.data.is_dnd);
+                Toast.show({
+                  type: "success",
+                  text1: res.data.is_dnd ? "DND on" : "You're available — followers notified",
+                });
+              }}
+              style={{
+                marginTop: 16,
+                backgroundColor: dnd ? theme.colors.dnd : theme.colors.brand,
+              }}
+            />
+          </View>
         </LinearGradient>
         <AppText variant="label" style={{ paddingHorizontal: 16, marginTop: 8 }}>
           Recent calls
@@ -114,10 +161,7 @@ export default function BrowseScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadPage(true)} />}
           contentContainerStyle={{ padding: 16 }}
           ListEmptyComponent={
-            <EmptyState
-              title="No calls yet"
-              subtitle="Stay online to receive instant calls."
-            />
+            <EmptyState title="No calls yet" subtitle="Stay online to receive instant calls." />
           }
           renderItem={({ item, index }) => (
             <Animated.View entering={FadeIn.delay(Math.min(index * 40, 200)).duration(theme.motion.statusFade)}>
@@ -143,6 +187,38 @@ export default function BrowseScreen() {
         <AppText variant="subtitle" style={{ marginTop: 4 }}>
           Creators ready for instant calls
         </AppText>
+        <TextInput
+          style={styles.search}
+          placeholder="Search creators"
+          placeholderTextColor={theme.colors.textMuted}
+          value={query}
+          onChangeText={setQuery}
+          autoCorrect={false}
+        />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+          {SORTS.map((s) => (
+            <Pressable
+              key={s.id}
+              onPress={() => setSort(s.id)}
+              style={[styles.chip, sort === s.id && styles.chipOn]}
+            >
+              <AppText style={[styles.chipText, sort === s.id && styles.chipTextOn]}>{s.label}</AppText>
+            </Pressable>
+          ))}
+        </ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+          {STATUS_FILTERS.map((s) => (
+            <Pressable
+              key={s}
+              onPress={() => setStatusFilter(s)}
+              style={[styles.chip, statusFilter === s && styles.chipOn]}
+            >
+              <AppText style={[styles.chipText, statusFilter === s && styles.chipTextOn]}>
+                {s === "ALL" ? "All" : s}
+              </AppText>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
       {initial && creators.length === 0 ? (
         <View style={{ padding: 16 }}>
@@ -159,7 +235,7 @@ export default function BrowseScreen() {
           onEndReachedThreshold={0.4}
           contentContainerStyle={{ padding: 16, gap: 10 }}
           ListEmptyComponent={
-            <EmptyState title="No creators yet" subtitle="Pull to refresh when creators go live." />
+            <EmptyState title="No creators found" subtitle="Try another search or clear filters." />
           }
           ListFooterComponent={
             loadingMore ? <ActivityIndicator color={theme.colors.brand} style={{ marginVertical: 16 }} /> : null
@@ -168,13 +244,14 @@ export default function BrowseScreen() {
             <Animated.View entering={FadeIn.delay(Math.min(index * 35, 210)).duration(theme.motion.statusFade)}>
               <Card onPress={() => router.push(`/creator/${item.user_id}`)}>
                 <View style={styles.row}>
-                  <Avatar uri={item.picture} name={item.name} size={64} />
+                  <Avatar uri={item.picture} name={item.name} size={72} />
                   <View style={{ flex: 1 }}>
                     <AppText style={styles.name}>{item.name || "Creator"}</AppText>
                     <StatusDot status={item.status} />
-                    <AppText variant="caption" style={{ marginTop: 4 }}>
-                      ₹{item.audio_rate_per_minute}/min audio · ₹{item.video_rate_per_minute}/min video
+                    <AppText variant="caption" style={{ marginTop: 6 }}>
+                      ₹{item.audio_rate_per_minute}/min audio
                     </AppText>
+                    <AppText variant="caption">₹{item.video_rate_per_minute}/min video</AppText>
                     {item.avg_rating != null && (
                       <View style={styles.ratingChip}>
                         <AppText style={styles.ratingText}>
@@ -209,6 +286,27 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginTop: 8,
   },
+  search: {
+    marginTop: 14,
+    height: 48,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: "#fff",
+    paddingHorizontal: 14,
+    fontFamily: theme.font.body,
+    color: theme.colors.text,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface,
+    marginRight: 8,
+  },
+  chipOn: { backgroundColor: theme.colors.brand },
+  chipText: { fontFamily: theme.font.bodySemi, color: theme.colors.textSecondary, fontSize: 13 },
+  chipTextOn: { color: "#fff" },
   row: { flexDirection: "row", gap: 14, alignItems: "center" },
   name: {
     fontFamily: theme.font.bodyBold,
@@ -238,4 +336,18 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
   },
   callTitle: { fontFamily: theme.font.bodyBold, color: theme.colors.text },
+  dndWrap: { marginTop: 4 },
+  sparkRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 6,
+    marginTop: 14,
+    height: 40,
+  },
+  sparkBar: {
+    width: 10,
+    borderRadius: 4,
+    backgroundColor: theme.colors.brandLight,
+    opacity: 0.85,
+  },
 });

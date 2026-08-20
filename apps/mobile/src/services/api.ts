@@ -1,7 +1,7 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000/api";
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "https://voxra-dkfe.onrender.com/api";
 
 export const api = axios.create({
   baseURL: BASE_URL,
@@ -24,6 +24,8 @@ export const authAPI = {
   me: () => api.get("/auth/me"),
   completeProfile: (data: Record<string, unknown>) =>
     api.post("/auth/complete-profile", data),
+  updateProfile: (data: Record<string, unknown>) =>
+    api.post("/auth/update-profile", data),
 };
 
 export const creatorsAPI = {

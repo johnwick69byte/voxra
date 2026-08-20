@@ -7,13 +7,15 @@ import {
   BackHandler,
   Alert,
   AppState,
+  Pressable,
+  Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter, useNavigation } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
 import { callsAPI } from "../src/services/api";
 import { socketService } from "../src/services/socket";
-import { PrimaryButton } from "../src/components/PrimaryButton";
 import { useCallStore } from "../src/store/callStore";
 import { theme } from "../src/theme/tokens";
 import {
@@ -28,11 +30,40 @@ import {
   stopCallForegroundService,
 } from "../src/services/CallForegroundService";
 import { endCallKeepCall } from "../src/services/CallKeepService";
+import { playRingtone, stopRingtone } from "../src/services/ringtone";
+import { useSecureCallScreen } from "../src/hooks/useSecureCallScreen";
+import { GiftBurst, GiftFx } from "../src/components/GiftBurst";
 
 const DISCONNECT_GRACE_MS = 20000;
 const IS_PROD = !__DEV__;
+const GIFT_AMOUNTS = [10, 25, 50, 100, 250];
+const GIFT_ICONS = ["🎁", "💎", "🌹", "⭐", "👑"];
+
+function CircleBtn({
+  icon,
+  label,
+  onPress,
+  color = "rgba(255,255,255,0.18)",
+  iconColor = "#fff",
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  color?: string;
+  iconColor?: string;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.circleWrap}>
+      <View style={[styles.circle, { backgroundColor: color }]}>
+        <Ionicons name={icon} size={24} color={iconColor} />
+      </View>
+      <Text style={styles.circleLabel}>{label}</Text>
+    </Pressable>
+  );
+}
 
 export default function CallScreen() {
+  useSecureCallScreen(true);
   const router = useRouter();
   const navigation = useNavigation();
   const params = useLocalSearchParams();
@@ -51,6 +82,12 @@ export default function CallScreen() {
   const [videoOn, setVideoOn] = useState(callType === "VIDEO");
   const [remoteUid, setRemoteUid] = useState<number | null>(null);
   const [mediaReady, setMediaReady] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [giftOpen, setGiftOpen] = useState(false);
+  const [giftsTotal, setGiftsTotal] = useState(0);
+  const [earningsSession, setEarningsSession] = useState(0);
+  const [giftFx, setGiftFx] = useState<GiftFx[]>([]);
+  const [isLive, setIsLive] = useState(false);
 
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const billTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -68,6 +105,17 @@ export default function CallScreen() {
     statusRef.current = status;
   }, [status]);
 
+  useEffect(() => {
+    if (role === "caller" && status.startsWith("Ring")) {
+      playRingtone(true);
+    } else {
+      stopRingtone();
+    }
+    return () => {
+      stopRingtone();
+    };
+  }, [status, role]);
+
   const clearTimers = () => {
     if (timer.current) clearInterval(timer.current);
     if (billTimer.current) clearInterval(billTimer.current);
@@ -81,6 +129,7 @@ export default function CallScreen() {
     if (timer.current) return;
     startRef.current = Date.now();
     liveRef.current = true;
+    setIsLive(true);
     timer.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     billTimer.current = setInterval(async () => {
       try {
@@ -106,12 +155,14 @@ export default function CallScreen() {
       onJoined: () => {
         setMediaReady(true);
         setStatus("Connected");
+        setReconnecting(false);
       },
       onRemoteUid: (uid) => {
         setRemoteUid(uid);
         if (uid != null && graceTimer.current) {
           clearTimeout(graceTimer.current);
           graceTimer.current = null;
+          setReconnecting(false);
           callsAPI.reconnect(callId).catch(() => {});
           Toast.show({ type: "success", text1: "Peer reconnected" });
         }
@@ -137,7 +188,12 @@ export default function CallScreen() {
   const scheduleDisconnectGrace = (reason: string) => {
     if (endingRef.current || !liveRef.current) return;
     if (graceTimer.current) return;
-    Toast.show({ type: "info", text1: reason, text2: `Reconnecting… ${DISCONNECT_GRACE_MS / 1000}s` });
+    setReconnecting(true);
+    Toast.show({
+      type: "info",
+      text1: reason,
+      text2: `Reconnecting… ${DISCONNECT_GRACE_MS / 1000}s`,
+    });
     graceTimer.current = setTimeout(async () => {
       try {
         await callsAPI.handleDisconnect(callId);
@@ -153,16 +209,15 @@ export default function CallScreen() {
     endingRef.current = true;
     clearTimers();
     liveRef.current = false;
+    setIsLive(false);
+    await stopRingtone();
     await stopCallForegroundService();
     await endCallKeepCall(callId);
     await leaveAndDestroy(engineRef.current);
     engineRef.current = null;
     reset();
     if (navigateReview) {
-      router.replace({
-        pathname: "/call-review",
-        params: { callId, peerName, peerId },
-      });
+      router.replace({ pathname: "/call-review", params: { callId, peerName, peerId } });
     } else {
       router.replace("/(tabs)/browse");
     }
@@ -193,7 +248,45 @@ export default function CallScreen() {
     ]);
   }, [leave]);
 
-  // Hardware back + gesture
+  const pushGiftFx = (amount: number, direction: "sent" | "received") => {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    setGiftFx((prev) => [...prev.slice(-4), { id, amount, direction }]);
+  };
+
+  const sendGift = async (amount: number) => {
+    if (!isLive) {
+      Toast.show({ type: "info", text1: "Gifts available during live call" });
+      return;
+    }
+    try {
+      const res = await callsAPI.gift(callId, amount);
+      if (typeof res.data?.balance === "number") {
+        setBilling(res.data.balance, totalBilled);
+      }
+      setGiftOpen(false);
+      Toast.show({
+        type: "success",
+        text1: `Gifted ₹${amount}`,
+        text2: res.data?.earnings != null ? `Creator gets ₹${res.data.earnings}` : undefined,
+      });
+      // Animation arrives via gift_sent socket for sync with peer
+    } catch (e: any) {
+      const statusCode = e?.response?.status;
+      if (statusCode === 402) {
+        Alert.alert("Insufficient balance", "Recharge to send gifts.", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Wallet", onPress: () => router.push("/(tabs)/wallet") },
+        ]);
+      } else {
+        Toast.show({
+          type: "error",
+          text1: "Gift failed",
+          text2: e?.response?.data?.detail || e.message,
+        });
+      }
+    }
+  };
+
   useEffect(() => {
     const onBack = () => {
       if (liveRef.current || !statusRef.current.startsWith("Ring")) {
@@ -215,15 +308,25 @@ export default function CallScreen() {
     };
   }, [navigation, confirmEnd, leave]);
 
-  // App background: keep call; if returning after long gap, heartbeat
   useEffect(() => {
-    const sub = AppState.addEventListener("change", (state) => {
+    const sub = AppState.addEventListener("change", async (state) => {
       if (state === "active" && liveRef.current) {
         socketService.emit("heartbeat");
       }
+      if (state === "active" && role === "caller" && statusRef.current.startsWith("Ring")) {
+        try {
+          const res = await callsAPI.active();
+          const call = res.data?.call;
+          if (!call || !["RINGING", "ACCEPTED", "LIVE"].includes(call.status)) {
+            await leave({ review: false });
+          }
+        } catch {
+          /* ignore */
+        }
+      }
     });
     return () => sub.remove();
-  }, []);
+  }, [role, leave]);
 
   useEffect(() => {
     setActiveCall(callId);
@@ -231,6 +334,7 @@ export default function CallScreen() {
 
     const onAccepted = async (payload?: any) => {
       setStatus("Connecting…");
+      await stopRingtone();
       try {
         const res = await callsAPI.prepaidStart(callId);
         const agora = res.data?.agora || payload?.agora || {};
@@ -241,7 +345,11 @@ export default function CallScreen() {
           agora.channel_name || channelName
         );
       } catch (e: any) {
-        Toast.show({ type: "error", text1: "Could not start call", text2: e?.response?.data?.detail });
+        Toast.show({
+          type: "error",
+          text1: "Could not start call",
+          text2: e?.response?.data?.detail,
+        });
         await leave({ review: false });
       }
     };
@@ -267,6 +375,17 @@ export default function CallScreen() {
         text2: `${p.minutes_remaining} min left`,
       });
     };
+    const onGiftReceived = (p: any) => {
+      const amt = Number(p.amount || 0);
+      const earn = Number(p.earnings || 0);
+      setGiftsTotal((t) => t + amt);
+      setEarningsSession((t) => t + earn);
+      pushGiftFx(amt, "received");
+    };
+    const onGiftSent = (p: any) => {
+      if (typeof p.balance === "number") setBilling(p.balance, totalBilled);
+      pushGiftFx(Number(p.amount || 0), "sent");
+    };
 
     socketService.on("call_accepted", onAccepted);
     socketService.on("call_rejected", onRejected);
@@ -275,6 +394,8 @@ export default function CallScreen() {
     socketService.on("call_ended_insufficient_balance", onEnded);
     socketService.on("call_prepaid_billed", onBilled);
     socketService.on("call_low_balance_warning", onLow);
+    socketService.on("gift_received", onGiftReceived);
+    socketService.on("gift_sent", onGiftSent);
 
     if (role === "receiver") {
       onAccepted({
@@ -290,7 +411,10 @@ export default function CallScreen() {
       socketService.off("call_ended_insufficient_balance", onEnded);
       socketService.off("call_prepaid_billed", onBilled);
       socketService.off("call_low_balance_warning", onLow);
+      socketService.off("gift_received", onGiftReceived);
+      socketService.off("gift_sent", onGiftSent);
       clearTimers();
+      stopRingtone();
     };
   }, [callId]);
 
@@ -340,13 +464,29 @@ export default function CallScreen() {
 
       <View style={styles.overlay}>
         <Text style={styles.brand}>Voxora</Text>
+        {reconnecting ? (
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>Reconnecting…</Text>
+          </View>
+        ) : null}
+        {giftFx.map((g) => (
+          <GiftBurst
+            key={g.id}
+            gift={g}
+            onDone={(id) => setGiftFx((prev) => prev.filter((x) => x.id !== id))}
+          />
+        ))}
         <Text style={styles.peer}>{peerName}</Text>
         <Text style={styles.status}>{status}</Text>
         <Text style={styles.timer}>
           {mm}:{ss}
         </Text>
         <Text style={styles.meta}>
-          {callType} · billed ₹{totalBilled.toFixed(0)}
+          {callType} · billed ₹{totalBilled.toFixed(0)} · bal ₹{balance.toFixed(0)}
+          {role === "receiver" && earningsSession > 0
+            ? ` · session earn ₹${earningsSession.toFixed(0)}`
+            : ""}
+          {role === "receiver" && giftsTotal > 0 ? ` · gifts ₹${giftsTotal}` : ""}
           {!IS_PROD && !isAgoraAvailable ? " · signaling" : ""}
         </Text>
         {lowBalance && (
@@ -354,19 +494,74 @@ export default function CallScreen() {
             <Text style={styles.warnText}>Low balance — ₹{balance.toFixed(0)}</Text>
           </View>
         )}
+
         <View style={styles.controls}>
-          <PrimaryButton label={muted ? "Unmute" : "Mute"} variant="ghost" onPress={toggleMute} style={styles.ctrl} />
+          <CircleBtn
+            icon={muted ? "mic-off" : "mic"}
+            label={muted ? "Unmute" : "Mute"}
+            onPress={toggleMute}
+          />
           {callType === "VIDEO" && (
-            <PrimaryButton
+            <CircleBtn
+              icon={videoOn ? "videocam" : "videocam-off"}
               label={videoOn ? "Cam off" : "Cam on"}
-              variant="ghost"
               onPress={toggleVideo}
-              style={styles.ctrl}
             />
           )}
-          <PrimaryButton label="End" variant="danger" onPress={confirmEnd} style={styles.ctrl} />
+          {role === "caller" ? (
+            <CircleBtn
+              icon="gift"
+              label="Gift"
+              onPress={() => {
+                if (!isLive) {
+                  Toast.show({ type: "info", text1: "Gifts available during live call" });
+                  return;
+                }
+                setGiftOpen(true);
+              }}
+              color="rgba(232,168,124,0.35)"
+            />
+          ) : (
+            <CircleBtn
+              icon="sparkles"
+              label={earningsSession > 0 ? `₹${earningsSession.toFixed(0)}` : "Gifts"}
+              onPress={() =>
+                Toast.show({
+                  type: "info",
+                  text1:
+                    giftsTotal > 0
+                      ? `Gifts ₹${giftsTotal} · you earned ₹${earningsSession.toFixed(0)}`
+                      : "No gifts yet",
+                })
+              }
+              color="rgba(232,168,124,0.35)"
+            />
+          )}
+          <CircleBtn
+            icon="call"
+            label="End"
+            onPress={confirmEnd}
+            color={theme.colors.callRed}
+          />
         </View>
       </View>
+
+      <Modal visible={giftOpen} transparent animationType="slide" onRequestClose={() => setGiftOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setGiftOpen(false)}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Send a gift</Text>
+            <Text style={styles.sheetHint}>Creator receives ~85% after platform fee</Text>
+            <View style={styles.giftRow}>
+              {GIFT_AMOUNTS.map((a, i) => (
+                <Pressable key={a} style={styles.giftChip} onPress={() => sendGift(a)}>
+                  <Text style={styles.giftIcon}>{GIFT_ICONS[i] || "🎁"}</Text>
+                  <Text style={styles.giftAmt}>₹{a}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -398,16 +593,42 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
   },
-  warnText: { color: theme.colors.accent, fontWeight: "700" },
+  warnText: { color: theme.colors.accent, fontFamily: theme.font.bodyBold },
+  banner: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 100 : 80,
+    backgroundColor: "rgba(217,119,6,0.9)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  giftBanner: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 100 : 80,
+    backgroundColor: "rgba(15,118,110,0.95)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  bannerText: { color: "#fff", fontFamily: theme.font.bodyBold },
   controls: {
     flexDirection: "row",
-    gap: 10,
+    justifyContent: "center",
+    gap: 18,
     position: "absolute",
-    bottom: 56,
-    left: 20,
-    right: 20,
+    bottom: 48,
+    left: 16,
+    right: 16,
   },
-  ctrl: { flex: 1 },
+  circleWrap: { alignItems: "center", gap: 6 },
+  circle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  circleLabel: { color: "rgba(255,255,255,0.8)", fontSize: 11, fontFamily: theme.font.bodySemi },
   localPip: {
     position: "absolute",
     top: Platform.OS === "ios" ? 100 : 80,
@@ -419,4 +640,39 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.4)",
   },
+  sheetBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  sheet: {
+    backgroundColor: theme.colors.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 40,
+  },
+  sheetTitle: {
+    fontFamily: theme.font.displayMedium,
+    fontSize: 22,
+    color: theme.colors.text,
+    marginBottom: 6,
+  },
+  sheetHint: {
+    fontFamily: theme.font.body,
+    fontSize: 13,
+    color: theme.colors.textSecondary,
+    marginBottom: 16,
+  },
+  giftRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  giftChip: {
+    backgroundColor: theme.colors.brand,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    minWidth: 72,
+    alignItems: "center",
+  },
+  giftIcon: { fontSize: 20, marginBottom: 4 },
+  giftAmt: { color: "#fff", fontFamily: theme.font.bodyBold, fontSize: 16 },
 });

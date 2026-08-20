@@ -198,6 +198,7 @@ export default function RootLayout() {
         <Stack.Screen name="pending-approval" />
         <Stack.Screen name="call-review" />
         <Stack.Screen name="call-history" />
+        <Stack.Screen name="edit-profile" />
         <Stack.Screen name="notifications" />
         <Stack.Screen name="privacy" />
         <Stack.Screen name="terms" />

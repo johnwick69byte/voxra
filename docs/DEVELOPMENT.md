@@ -18,7 +18,7 @@
 docker compose up -d
 cd apps/api && pip install -r requirements.txt && uvicorn app.main:socket_app --reload --port 8000
 cd apps/admin && npm i && npm run dev
-cd apps/mobile && yarn && EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:8000/api npx expo start
+cd apps/mobile && yarn && EXPO_PUBLIC_API_URL=https://voxra-dkfe.onrender.com/api npx expo start
 ```
 
 Bootstrap admin: open admin → **Bootstrap first admin** (or `POST /api/admin/bootstrap`).

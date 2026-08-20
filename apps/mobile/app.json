@@ -63,15 +63,7 @@
         }
       ],
       "@react-native-firebase/app",
-      "@react-native-firebase/messaging",
-      [
-        "@notifee/react-native",
-        {
-          "android": {
-            "foregroundServiceTypes": ["microphone", "camera", "phoneCall"]
-          }
-        }
-      ]
+      "@react-native-firebase/messaging"
     ],
     "experiments": {
       "typedRoutes": true

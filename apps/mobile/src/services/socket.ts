@@ -1,6 +1,7 @@
 import { io, Socket } from "socket.io-client";
 
-const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/api$/, "") || "http://localhost:8000";
+const SOCKET_URL =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/api$/, "") || "https://voxra-dkfe.onrender.com";
 
 class SocketService {
   private socket: Socket | null = null;

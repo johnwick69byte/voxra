@@ -17,7 +17,7 @@ Place secrets (do not commit):
 
 Mobile env (EAS secrets or `eas.json` env):
 ```
-EXPO_PUBLIC_API_URL=https://your-api.example.com/api
+EXPO_PUBLIC_API_URL=https://voxra-dkfe.onrender.com/api
 EXPO_PUBLIC_AGORA_APP_ID=...
 ```
 

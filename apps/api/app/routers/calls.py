@@ -128,12 +128,21 @@ async def gift(call_id: str, body: GiftRequest, user: dict = Depends(require_use
         metadata={"call_id": call_id},
     )
     from app.core.socket import emit_to_user
-    await emit_to_user(
-        call["receiver_id"],
-        "gift_received",
-        {"call_id": call_id, "amount": amount, "earnings": commission["model_earnings"]},
-    )
-    return {"success": True, "balance": updated.get("balance", 0)}
+    payload = {
+        "call_id": call_id,
+        "amount": amount,
+        "earnings": commission["model_earnings"],
+        "commission_rate": commission["commission_rate"],
+        "balance": updated.get("balance", 0),
+    }
+    await emit_to_user(call["receiver_id"], "gift_received", payload)
+    await emit_to_user(call["caller_id"], "gift_sent", payload)
+    return {
+        "success": True,
+        "balance": updated.get("balance", 0),
+        "earnings": commission["model_earnings"],
+        "commission_rate": commission["commission_rate"],
+    }
 
 
 @router.post("/{call_id}/review")
@@ -218,4 +227,15 @@ async def history(user: dict = Depends(require_user)):
         .limit(50)
         .to_list(50)
     )
+    peer_ids = set()
+    for c in calls:
+        peer_ids.add(c["caller_id"] if c["receiver_id"] == user["user_id"] else c["receiver_id"])
+    users = {}
+    if peer_ids:
+        async for u in db.users.find({"user_id": {"$in": list(peer_ids)}}, {"_id": 0, "user_id": 1, "name": 1}):
+            users[u["user_id"]] = u.get("name")
+    for c in calls:
+        peer_id = c["caller_id"] if c["receiver_id"] == user["user_id"] else c["receiver_id"]
+        c["peer_id"] = peer_id
+        c["peer_name"] = users.get(peer_id) or c.get("caller_name") or c.get("receiver_name")
     return {"success": True, "calls": calls}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -7,11 +7,13 @@ import {
   Linking,
   RefreshControl,
   TextInput,
+  ScrollView,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import * as LinkingExpo from "expo-linking";
 import Toast from "react-native-toast-message";
 import Animated, {
+  FadeInDown,
   useAnimatedStyle,
   useSharedValue,
   withSequence,
@@ -19,6 +21,7 @@ import Animated, {
 } from "react-native-reanimated";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { walletAPI } from "../../src/services/api";
+import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText, Card } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
@@ -26,8 +29,11 @@ import * as Haptics from "expo-haptics";
 
 const PENDING_ORDER_KEY = "pending_recharge_order";
 const LAST_RATE_KEY = "last_viewed_audio_rate";
+const TX_FILTERS = ["ALL", "RECHARGE", "CALL", "GIFT", "WITHDRAW"] as const;
 
 export default function WalletScreen() {
+  const user = useAuthStore((s) => s.user);
+  const isCreator = user?.user_type === "creator";
   const [balance, setBalance] = useState(0);
   const [earnings, setEarnings] = useState(0);
   const [packages, setPackages] = useState<any[]>([]);
@@ -37,12 +43,20 @@ export default function WalletScreen() {
   const [customAmount, setCustomAmount] = useState("");
   const [lastRate, setLastRate] = useState<number | null>(null);
   const [successFlash, setSuccessFlash] = useState(false);
+  const [txFilter, setTxFilter] = useState<(typeof TX_FILTERS)[number]>("ALL");
+  const [withdrawAmt, setWithdrawAmt] = useState("");
+  const [upi, setUpi] = useState("");
   const scale = useSharedValue(1);
   const prevBalance = useRef(0);
 
   const balAnim = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
+
+  const filteredTxs = useMemo(() => {
+    if (txFilter === "ALL") return txs;
+    return txs.filter((t) => String(t.type || "").toUpperCase().includes(txFilter));
+  }, [txs, txFilter]);
 
   const load = async () => {
     setRefreshing(true);
@@ -83,7 +97,7 @@ export default function WalletScreen() {
         await load();
       }
     } catch {
-      Toast.show({ type: "info", text1: "Payment still pending", text2: "We'll keep checking" });
+      Toast.show({ type: "info", text1: "Payment still pending" });
     }
   };
 
@@ -105,9 +119,7 @@ export default function WalletScreen() {
       }
     });
     LinkingExpo.getInitialURL().then((url) => {
-      if (url?.includes("wallet")) {
-        verifyPending();
-      }
+      if (url?.includes("wallet")) verifyPending();
     });
     return () => sub.remove();
   }, []);
@@ -127,7 +139,7 @@ export default function WalletScreen() {
       Toast.show({
         type: "info",
         text1: "Complete payment",
-        text2: "Return via voxora://wallet — we'll verify automatically",
+        text2: "Return via voxora://wallet",
       });
     } catch (e: any) {
       Toast.show({
@@ -140,27 +152,87 @@ export default function WalletScreen() {
     }
   };
 
+  const withdraw = async () => {
+    const amount = Number(withdrawAmt);
+    if (!amount || amount < 100) {
+      Toast.show({ type: "error", text1: "Minimum withdrawal ₹100" });
+      return;
+    }
+    if (!upi.trim() || !upi.includes("@")) {
+      Toast.show({ type: "error", text1: "Enter a valid UPI ID" });
+      return;
+    }
+    setLoading(true);
+    try {
+      await walletAPI.withdraw(amount, upi.trim());
+      Toast.show({ type: "success", text1: "Withdrawal requested" });
+      setWithdrawAmt("");
+      await load();
+    } catch (e: any) {
+      Toast.show({
+        type: "error",
+        text1: "Withdraw failed",
+        text2: e?.response?.data?.detail || e.message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const minutesEstimate = (amount: number) => {
     if (!lastRate || lastRate <= 0) return null;
-    const credit = amount;
-    return Math.floor(credit / lastRate);
+    return Math.floor(amount / lastRate);
   };
 
   return (
     <View style={styles.wrap}>
       <AppText style={styles.brand}>Wallet</AppText>
-      <Animated.View style={[styles.balanceCard, balAnim]}>
+
+      <Animated.View entering={FadeInDown.duration(380)} style={[styles.balanceCard, balAnim]}>
         <AppText style={styles.balLabel}>
-          {successFlash ? "Balance updated" : "Spendable"}
+          {successFlash ? "Balance updated" : "Spendable (calls & gifts)"}
         </AppText>
         <AppText style={styles.bal}>₹{balance.toFixed(2)}</AppText>
-        <AppText style={styles.earn}>Earnings: ₹{earnings.toFixed(2)}</AppText>
         {lastRate ? (
           <AppText style={styles.estimate}>
-            ~{Math.floor(balance / lastRate)} min at last viewed rate (₹{lastRate}/min)
+            ~{Math.floor(balance / lastRate)} min at last rate (₹{lastRate}/min)
           </AppText>
         ) : null}
       </Animated.View>
+
+      {isCreator ? (
+        <Animated.View entering={FadeInDown.delay(80).duration(380)} style={styles.earnCard}>
+          <AppText style={styles.earnLabel}>Creator earnings</AppText>
+          <AppText style={styles.earnBal}>₹{earnings.toFixed(2)}</AppText>
+          <AppText style={styles.commissionHint}>
+            After ~15% platform commission on calls & gifts
+          </AppText>
+          <AppText variant="label" style={{ marginTop: 14, color: "rgba(255,255,255,0.65)" }}>
+            Withdraw to UPI
+          </AppText>
+          <TextInput
+            style={styles.wdInput}
+            placeholder="Amount"
+            placeholderTextColor="rgba(255,255,255,0.45)"
+            keyboardType="number-pad"
+            value={withdrawAmt}
+            onChangeText={setWithdrawAmt}
+          />
+          <TextInput
+            style={styles.wdInput}
+            placeholder="name@upi"
+            placeholderTextColor="rgba(255,255,255,0.45)"
+            autoCapitalize="none"
+            value={upi}
+            onChangeText={setUpi}
+          />
+          <PrimaryButton label="Request withdrawal" onPress={withdraw} loading={loading} style={{ marginTop: 10 }} />
+        </Animated.View>
+      ) : earnings > 0 ? (
+        <AppText variant="caption" style={{ paddingHorizontal: 24 }}>
+          Referral / misc earnings: ₹{earnings.toFixed(2)}
+        </AppText>
+      ) : null}
 
       <AppText variant="label" style={styles.section}>
         Recharge packs
@@ -177,12 +249,8 @@ export default function WalletScreen() {
             >
               <AppText variant="caption">{p.label}</AppText>
               <AppText style={styles.packAmt}>₹{p.amount}</AppText>
-              {p.bonus > 0 && (
-                <AppText style={styles.bonus}>+₹{p.bonus}</AppText>
-              )}
-              {mins != null && (
-                <AppText style={styles.mins}>~{mins} min</AppText>
-              )}
+              {p.bonus > 0 && <AppText style={styles.bonus}>+₹{p.bonus}</AppText>}
+              {mins != null && <AppText style={styles.mins}>~{mins} min</AppText>}
             </Pressable>
           );
         })}
@@ -207,11 +275,6 @@ export default function WalletScreen() {
           style={{ width: 100 }}
         />
       </View>
-      {customAmount && minutesEstimate(Number(customAmount)) != null ? (
-        <AppText variant="caption" style={{ paddingHorizontal: 24, marginTop: 6 }}>
-          ≈ {minutesEstimate(Number(customAmount))} minutes at last viewed rate
-        </AppText>
-      ) : null}
 
       <PrimaryButton
         label="Verify pending payment"
@@ -221,13 +284,25 @@ export default function WalletScreen() {
       />
 
       <AppText variant="label" style={styles.section}>
-        History
+        Ledger
       </AppText>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 20 }}>
+        {TX_FILTERS.map((f) => (
+          <Pressable
+            key={f}
+            onPress={() => setTxFilter(f)}
+            style={[styles.chip, txFilter === f && styles.chipOn]}
+          >
+            <AppText style={[styles.chipText, txFilter === f && styles.chipTextOn]}>{f}</AppText>
+          </Pressable>
+        ))}
+      </ScrollView>
+
       <FlatList
-        data={txs}
+        data={filteredTxs}
         keyExtractor={(i) => i.transaction_id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, paddingTop: 8 }}
         renderItem={({ item }) => (
           <Card style={styles.tx}>
             <View style={styles.txRow}>
@@ -256,38 +331,43 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.xl,
     padding: 24,
   },
-  balLabel: {
-    color: "rgba(255,255,255,0.7)",
-    fontFamily: theme.font.bodySemi,
-  },
-  bal: {
-    color: "#fff",
-    fontSize: 40,
-    fontFamily: theme.font.display,
-    marginTop: 4,
-  },
-  earn: {
-    color: theme.colors.accent,
-    marginTop: 8,
-    fontFamily: theme.font.bodySemi,
-  },
+  balLabel: { color: "rgba(255,255,255,0.7)", fontFamily: theme.font.bodySemi },
+  bal: { color: "#fff", fontSize: 40, fontFamily: theme.font.display, marginTop: 4 },
   estimate: {
     color: "rgba(255,255,255,0.75)",
     marginTop: 10,
     fontFamily: theme.font.body,
     fontSize: 13,
   },
-  section: {
-    paddingHorizontal: 24,
-    marginTop: 16,
-    marginBottom: 10,
+  earnCard: {
+    marginHorizontal: 24,
+    marginBottom: 8,
+    backgroundColor: "#14352F",
+    borderRadius: theme.radius.xl,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "rgba(232,168,124,0.35)",
   },
-  packRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    paddingHorizontal: 24,
+  earnLabel: { color: theme.colors.accent, fontFamily: theme.font.bodySemi },
+  earnBal: { color: "#fff", fontSize: 32, fontFamily: theme.font.display, marginTop: 4 },
+  commissionHint: {
+    color: "rgba(255,255,255,0.6)",
+    marginTop: 6,
+    fontFamily: theme.font.body,
+    fontSize: 12,
   },
+  wdInput: {
+    marginTop: 8,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 14,
+    color: "#fff",
+    fontFamily: theme.font.body,
+  },
+  section: { paddingHorizontal: 24, marginTop: 16, marginBottom: 10 },
+  packRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingHorizontal: 24 },
   pack: {
     width: "30%",
     flexGrow: 1,
@@ -304,24 +384,9 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginTop: 4,
   },
-  bonus: {
-    fontSize: 11,
-    color: theme.colors.brand,
-    fontFamily: theme.font.bodyBold,
-    marginTop: 2,
-  },
-  mins: {
-    fontSize: 11,
-    color: theme.colors.textSecondary,
-    marginTop: 4,
-    fontFamily: theme.font.body,
-  },
-  customRow: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 24,
-    alignItems: "center",
-  },
+  bonus: { fontSize: 11, color: theme.colors.brand, fontFamily: theme.font.bodyBold, marginTop: 2 },
+  mins: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 4, fontFamily: theme.font.body },
+  customRow: { flexDirection: "row", gap: 10, paddingHorizontal: 24, alignItems: "center" },
   customInput: {
     flex: 1,
     height: 52,
@@ -333,6 +398,16 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.body,
     color: theme.colors.text,
   },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surface,
+    marginRight: 8,
+  },
+  chipOn: { backgroundColor: theme.colors.brand },
+  chipText: { fontFamily: theme.font.bodySemi, fontSize: 12, color: theme.colors.textSecondary },
+  chipTextOn: { color: "#fff" },
   tx: { marginBottom: 8, paddingVertical: 12 },
   txRow: { flexDirection: "row", justifyContent: "space-between" },
   txType: { fontFamily: theme.font.bodySemi, color: theme.colors.text },

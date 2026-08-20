@@ -37,13 +37,20 @@ export default function ProfileScreen() {
 
       {user?.referral_code ? (
         <Pressable style={styles.refCard} onPress={shareReferral}>
-          <AppText variant="label">Your referral code</AppText>
+          <AppText variant="label" style={{ color: "rgba(255,255,255,0.7)" }}>
+            Your referral code
+          </AppText>
           <AppText style={styles.refCode}>{user.referral_code}</AppText>
-          <AppText variant="caption">Tap to share — earn when friends recharge</AppText>
+          <AppText variant="caption" style={{ color: "rgba(255,255,255,0.7)" }}>
+            Tap to share — earn when friends recharge
+          </AppText>
         </Pressable>
       ) : null}
 
       <View style={styles.links}>
+        <Pressable onPress={() => router.push("/edit-profile")}>
+          <AppText style={styles.link}>Edit profile</AppText>
+        </Pressable>
         {isCreator && (
           <Pressable onPress={() => router.push("/pricing-setup")}>
             <AppText style={styles.link}>Call rates</AppText>

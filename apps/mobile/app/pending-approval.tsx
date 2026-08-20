@@ -1,21 +1,55 @@
-import { View, Text, StyleSheet } from "react-native";
+import { useEffect, useState } from "react";
+import { View, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { PrimaryButton } from "../src/components/PrimaryButton";
+import { AppText } from "../src/components/ui";
 import { theme } from "../src/theme/tokens";
 import { useAuthStore } from "../src/store/authStore";
+import { creatorsAPI } from "../src/services/api";
 
 export default function PendingApproval() {
   const router = useRouter();
   const logout = useAuthStore((s) => s.logout);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const refresh = async () => {
+    try {
+      const res = await creatorsAPI.onboardingStatus();
+      setStatus(res.data.verification_status || null);
+      if (res.data.next_step === "home") {
+        router.replace("/(tabs)/browse");
+      }
+    } catch {
+      router.replace("/");
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const rejected = status === "rejected";
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.brand}>Voxora</Text>
-      <Text style={styles.title}>Under review</Text>
-      <Text style={styles.sub}>
-        Your live selfie and rates are with our team. You'll get a push when you're approved and can take instant calls.
-      </Text>
-      <PrimaryButton label="Refresh status" onPress={() => router.replace("/")} style={{ marginTop: 24 }} />
+      <AppText style={styles.brand}>Voxora</AppText>
+      <AppText variant="title" style={{ marginTop: 16 }}>
+        {rejected ? "Verification rejected" : "Under review"}
+      </AppText>
+      <AppText variant="subtitle" style={{ marginTop: 12 }}>
+        {rejected
+          ? "Please retake a clear live selfie and resubmit. Contact support if this keeps happening."
+          : "Your live selfie and rates are with our team. You'll get a push when you're approved and can take instant calls."}
+      </AppText>
+      {rejected ? (
+        <PrimaryButton
+          label="Retake selfie"
+          onPress={() => router.replace("/verification-selfie")}
+          style={{ marginTop: 24 }}
+        />
+      ) : (
+        <PrimaryButton label="Refresh status" onPress={refresh} style={{ marginTop: 24 }} />
+      )}
       <PrimaryButton
         label="Log out"
         variant="ghost"
@@ -31,7 +65,5 @@ export default function PendingApproval() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: theme.colors.background, padding: 24, paddingTop: 80 },
-  brand: { fontSize: 32, fontWeight: "800", color: theme.colors.brand },
-  title: { fontSize: 26, fontWeight: "700", color: theme.colors.text, marginTop: 16 },
-  sub: { color: theme.colors.textSecondary, marginTop: 12, lineHeight: 22 },
+  brand: { fontFamily: theme.font.display, fontSize: 32, color: theme.colors.brand },
 });

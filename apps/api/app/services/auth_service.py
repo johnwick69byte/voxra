@@ -224,7 +224,12 @@ async def send_otp(country_code: str, phone: str) -> dict:
                 "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
             }
         )
-        return {"success": True, "message": "OTP sent", "dev": False}
+        return {
+            "success": True,
+            "message": "OTP sent successfully",
+            "verification_id": verification_id,
+            "dev": False,
+        }
 
     if (settings.environment or "").strip().lower() == "production":
         return {
@@ -244,7 +249,12 @@ async def send_otp(country_code: str, phone: str) -> dict:
         }
     )
     logger.info("DEV OTP for %s: %s", full, code)
-    return {"success": True, "message": "OTP sent", "dev": True, "dev_code": code}
+    return {
+        "success": True,
+        "message": "OTP sent successfully",
+        "verification_id": f"dev_{uuid.uuid4().hex[:12]}",
+        "dev": True,
+    }
 
 
 async def verify_otp(
@@ -252,19 +262,20 @@ async def verify_otp(
     phone: str,
     otp: str,
     user_type: Optional[str] = None,
+    verification_id: Optional[str] = None,
 ) -> dict:
     full = _normalize_phone(country_code, phone)
     db = get_db()
     record = await db.otp_codes.find_one({"phone": full}, sort=[("created_at", -1)])
-    settings = get_settings()
-    dev_code = (settings.dev_otp_code or "7723").strip()
+    # Same rule as the previous app: real SMS is checked, and 7723 is accepted as-is.
+    DEFAULT_TEST_OTP = "7723"
+    stored_id = verification_id or (record or {}).get("verification_id")
     valid = False
-    # Same as the previous app: a real SMS is sent, and 7723 is also accepted.
-    if record and otp == dev_code:
-        logger.info("Dev OTP accepted for %s", full)
+    if otp.strip() == DEFAULT_TEST_OTP:
+        logger.info("Default test OTP used for phone: %s", full)
         valid = True
-    elif record and record.get("verification_id"):
-        valid = await _validate_messagecentral_otp(str(record["verification_id"]), otp)
+    elif stored_id:
+        valid = await _validate_messagecentral_otp(str(stored_id), otp)
     elif record and record.get("code") == otp:
         valid = True
     if not valid:

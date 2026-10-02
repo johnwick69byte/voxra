@@ -22,8 +22,13 @@ api.interceptors.request.use(async (config) => {
 export const authAPI = {
   sendOtp: (phone: string, country_code = "+91") =>
     api.post("/auth/otp/send", { phone, country_code }),
-  verifyOtp: (phone: string, otp: string, user_type?: string, country_code = "+91") =>
-    api.post("/auth/otp/verify", { phone, otp, user_type, country_code }),
+  verifyOtp: (
+    phone: string,
+    otp: string,
+    verification_id?: string,
+    user_type?: string,
+    country_code = "+91"
+  ) => api.post("/auth/otp/verify", { phone, otp, verification_id, user_type, country_code }),
   me: () => api.get("/auth/me"),
   completeProfile: (data: Record<string, unknown>) =>
     api.post("/auth/complete-profile", data),

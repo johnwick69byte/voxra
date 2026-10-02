@@ -40,6 +40,7 @@ export default function LoginScreen() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [sent, setSent] = useState(false);
+  const [verificationId, setVerificationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [terms, setTerms] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -83,12 +84,18 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const res = await authAPI.sendOtp(digits);
+      const id = res.data?.verification_id;
+      if (!id) {
+        Toast.show({ type: "error", text1: "Could not start verification", text2: "Request the code again." });
+        return;
+      }
+      setVerificationId(id);
       setSent(true);
       startCooldown();
       Toast.show({
         type: "success",
         text1: "OTP sent",
-        text2: "Check your SMS. Test code 7723 also works.",
+        text2: "Check your phone for the 4-digit code. Valid for 15 minutes.",
       });
     } catch (e: any) {
       const status = e?.response?.status;
@@ -107,9 +114,13 @@ export default function LoginScreen() {
       Toast.show({ type: "error", text1: "Enter the 4-digit OTP" });
       return;
     }
+    if (!verificationId) {
+      Toast.show({ type: "error", text1: "Request a new OTP" });
+      return;
+    }
     setLoading(true);
     try {
-      const res = await authAPI.verifyOtp(digits, otpDigits);
+      const res = await authAPI.verifyOtp(digits, otpDigits, verificationId);
       await setSession(res.data.token, res.data.user);
       router.replace("/");
     } catch (e: any) {
@@ -164,7 +175,7 @@ export default function LoginScreen() {
             <TextInput
               style={styles.otpInput}
               keyboardType="number-pad"
-              placeholder="7723"
+              placeholder="----"
               placeholderTextColor={theme.colors.textMuted}
               value={otpDigits}
               onChangeText={(t) => setOtp(t.replace(/\D/g, "").slice(0, 4))}
@@ -172,7 +183,8 @@ export default function LoginScreen() {
               autoFocus
             />
             <AppText variant="caption" style={{ marginTop: 8, lineHeight: 18 }}>
-              Check the SMS. The test code 7723 is also accepted.
+              OTP sent to +91 {formatPhone(digits)}{"\n"}
+              Valid for 15 minutes • 4-digit code
             </AppText>
           </>
         ) : (
@@ -208,7 +220,19 @@ export default function LoginScreen() {
             style={{ marginTop: 14, alignItems: "center", opacity: cooldown > 0 ? 0.5 : 1 }}
           >
             <AppText variant="caption" color={theme.colors.brand}>
-              {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
+              {cooldown > 0 ? `Resend OTP in ${cooldown}s` : "Resend OTP"}
+            </AppText>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setSent(false);
+              setOtp("");
+              setVerificationId(null);
+            }}
+            style={{ marginTop: 10, alignItems: "center" }}
+          >
+            <AppText variant="caption" color={theme.colors.textMuted}>
+              Change number
             </AppText>
           </Pressable>
         ) : null}

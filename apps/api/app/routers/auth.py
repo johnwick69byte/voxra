@@ -46,6 +46,7 @@ async def verify_otp(body: VerifyOtpRequest):
         body.phone,
         body.otp,
         user_type=body.user_type.value if body.user_type else None,
+        verification_id=body.verification_id,
     )
     if not result.get("success"):
         raise HTTPException(400, result.get("message", "Invalid OTP"))

@@ -50,6 +50,7 @@ class VerifyOtpRequest(BaseModel):
     phone: str
     country_code: str = "+91"
     otp: str
+    verification_id: Optional[str] = None
     user_type: Optional[UserType] = None
 
     @field_validator("phone")

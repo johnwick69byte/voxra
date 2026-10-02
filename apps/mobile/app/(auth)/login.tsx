@@ -214,27 +214,29 @@ export default function LoginScreen() {
           style={{ marginTop: 20, opacity: sent ? (otpOk ? 1 : 0.5) : phoneOk && terms ? 1 : 0.5 }}
         />
         {sent ? (
-          <Pressable
-            onPress={send}
-            disabled={cooldown > 0 || loading}
-            style={{ marginTop: 14, alignItems: "center", opacity: cooldown > 0 ? 0.5 : 1 }}
-          >
-            <AppText variant="caption" color={theme.colors.brand}>
-              {cooldown > 0 ? `Resend OTP in ${cooldown}s` : "Resend OTP"}
-            </AppText>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              setSent(false);
-              setOtp("");
-              setVerificationId(null);
-            }}
-            style={{ marginTop: 10, alignItems: "center" }}
-          >
-            <AppText variant="caption" color={theme.colors.textMuted}>
-              Change number
-            </AppText>
-          </Pressable>
+          <>
+            <Pressable
+              onPress={send}
+              disabled={cooldown > 0 || loading}
+              style={{ marginTop: 14, alignItems: "center", opacity: cooldown > 0 ? 0.5 : 1 }}
+            >
+              <AppText variant="caption" color={theme.colors.brand}>
+                {cooldown > 0 ? `Resend OTP in ${cooldown}s` : "Resend OTP"}
+              </AppText>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setSent(false);
+                setOtp("");
+                setVerificationId(null);
+              }}
+              style={{ marginTop: 10, alignItems: "center" }}
+            >
+              <AppText variant="caption" color={theme.colors.textMuted}>
+                Change number
+              </AppText>
+            </Pressable>
+          </>
         ) : null}
       </Animated.View>
     </KeyboardAvoidingView>
@@ -295,27 +297,4 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.bodyBold,
   },
   termsRow: { flexDirection: "row", gap: 10, alignItems: "flex-start", marginTop: 18 },
-  otpCapture: { ...StyleSheet.absoluteFill, color: "transparent" },
-  otpRow: { flexDirection: "row", gap: 8 },
-  otpCell: {
-    flex: 1,
-    height: 56,
-    borderRadius: 12,
-    backgroundColor: theme.colors.backgroundElevated,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  otpCellOn: { borderColor: theme.colors.brandLight },
-  otpDigit: { fontFamily: theme.font.bodyBold, fontSize: 22 },
-  devBox: {
-    marginTop: 14,
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.accent,
-  },
-  devCode: { fontFamily: theme.font.display, fontSize: 32, letterSpacing: 6, marginTop: 4 },
 });

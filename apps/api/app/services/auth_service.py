@@ -228,32 +228,11 @@ async def send_otp(country_code: str, phone: str) -> dict:
             "success": True,
             "message": "OTP sent successfully",
             "verification_id": verification_id,
-            "dev": False,
         }
 
-    if (settings.environment or "").strip().lower() == "production":
-        return {
-            "success": False,
-            "message": "OTP SMS is not configured.",
-            "dev": False,
-        }
-
-    code = settings.dev_otp_code or "7723"
-    await db.otp_codes.insert_one(
-        {
-            "phone": full,
-            "code": code,
-            "provider": "dev",
-            "created_at": datetime.now(timezone.utc),
-            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
-        }
-    )
-    logger.info("DEV OTP for %s: %s", full, code)
     return {
-        "success": True,
-        "message": "OTP sent successfully",
-        "verification_id": f"dev_{uuid.uuid4().hex[:12]}",
-        "dev": True,
+        "success": False,
+        "message": "OTP SMS is not configured.",
     }
 
 

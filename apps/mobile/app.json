@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "Voxora",
-    "slug": "voxora",
+    "name": "Simple Talk",
+    "slug": "simple-talk",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "voxora",
+    "scheme": "simpletalk",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "icon": "./assets/icon.png",
@@ -15,16 +15,16 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.voxora.app",
+      "bundleIdentifier": "com.simpletalk.app",
       "infoPlist": {
         "UIBackgroundModes": ["audio", "voip", "remote-notification"],
-        "NSCameraUsageDescription": "Voxora needs camera access for video calls.",
-        "NSMicrophoneUsageDescription": "Voxora needs microphone access for audio and video calls.",
-        "NSUserNotificationsUsageDescription": "Voxora sends call and account notifications."
+        "NSCameraUsageDescription": "Simple Talk needs camera access for video calls.",
+        "NSMicrophoneUsageDescription": "Simple Talk needs microphone access for audio and video calls.",
+        "NSUserNotificationsUsageDescription": "Simple Talk sends call and account notifications."
       }
     },
     "android": {
-      "package": "com.voxora.app",
+      "package": "com.simpletalk.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B1F1A"
@@ -53,13 +53,13 @@
       [
         "expo-av",
         {
-          "microphonePermission": "Allow Voxora to access your microphone for calls."
+          "microphonePermission": "Allow Simple Talk to access your microphone for calls."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Voxora to access your camera for video calls."
+          "cameraPermission": "Allow Simple Talk to access your camera for video calls."
         }
       ],
       "@react-native-firebase/app",

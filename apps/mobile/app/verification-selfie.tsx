@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
 import { PrimaryButton } from "../src/components/PrimaryButton";
 import { theme } from "../src/theme/tokens";
+import { APP_NAME } from "../src/theme/brand";
 import { ensureVerificationPermissions } from "../src/services/permissions";
 import { creatorsAPI } from "../src/services/api";
 
@@ -65,7 +66,7 @@ export default function VerificationSelfie() {
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.brand}>Voxora</Text>
+      <Text style={styles.brand}>{APP_NAME}</Text>
       <Text style={styles.title}>Live verification selfie</Text>
       <Text style={styles.sub}>Hold still and take a clear front-facing photo. Quitting is OK — we'll bring you back here.</Text>
       {photoUri ? (

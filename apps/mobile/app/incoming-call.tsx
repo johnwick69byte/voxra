@@ -18,6 +18,7 @@ import { playRingtone, stopRingtone } from "../src/services/ringtone";
 import { ensureCallDisclaimer } from "../src/services/callDisclaimer";
 import { useSecureCallScreen } from "../src/hooks/useSecureCallScreen";
 import { theme } from "../src/theme/tokens";
+import { APP_NAME } from "../src/theme/brand";
 import { useCallStore } from "../src/store/callStore";
 
 export default function IncomingCallScreen() {
@@ -122,7 +123,7 @@ export default function IncomingCallScreen() {
 
   return (
     <LinearGradient colors={[...theme.gradients.call]} style={styles.wrap}>
-      <AppText style={styles.brand}>Voxora</AppText>
+      <AppText style={styles.brand}>{APP_NAME}</AppText>
       <AppText style={styles.type}>Incoming {callType.toLowerCase()} call</AppText>
       <Animated.View style={{ transform: [{ scale: pulse }] }}>
         <Image

@@ -16,6 +16,7 @@ import { Screen, AppText, Card } from "../../src/components/ui";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { referralAPI } from "../../src/services/api";
 import { theme } from "../../src/theme/tokens";
+import { APP_NAME, APP_SCHEME } from "../../src/theme/brand";
 
 export default function ReferralScreen() {
   const [data, setData] = useState<any>(null);
@@ -46,7 +47,7 @@ export default function ReferralScreen() {
   );
 
   const code = data?.code || "————";
-  const shareMsg = `Join Voxora with my code ${code} — instant calls with creators. ${data?.share_url || ""}`;
+  const shareMsg = `Join ${APP_NAME} with my code ${code} — instant calls with creators. ${data?.share_url || `${APP_SCHEME}://login?ref=${code}`}`;
 
   const copy = async () => {
     try {
@@ -93,7 +94,7 @@ export default function ReferralScreen() {
       >
         <Animated.View entering={FadeInDown.duration(theme.motion.sheetSpring)} style={styles.hero}>
           <AppText variant="label">Invite & earn</AppText>
-          <AppText style={styles.title}>Bring friends to Voxora</AppText>
+          <AppText style={styles.title}>Bring friends to {APP_NAME}</AppText>
           <AppText variant="subtitle" style={{ marginTop: 8 }}>
             They join with your code. You get ₹{data?.referrer_bonus ?? 25} when they first recharge.
             They get ₹{data?.referee_bonus ?? 20}.

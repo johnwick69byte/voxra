@@ -3,6 +3,7 @@ import { Modal, View, Text, StyleSheet, Linking, Platform } from "react-native";
 import Constants from "expo-constants";
 import { appAPI } from "../services/api";
 import { theme } from "../theme/tokens";
+import { APP_NAME } from "../theme/brand";
 import { PrimaryButton } from "./PrimaryButton";
 
 function cmp(a: string, b: string) {
@@ -38,7 +39,7 @@ export function ForceUpdateGate() {
   return (
     <Modal visible animationType="fade">
       <View style={styles.wrap}>
-        <Text style={styles.brand}>Voxora</Text>
+        <Text style={styles.brand}>{APP_NAME}</Text>
         <Text style={styles.title}>Update required</Text>
         <Text style={styles.body}>A newer version is required to continue. Instant calls and payments need the latest build.</Text>
         <PrimaryButton

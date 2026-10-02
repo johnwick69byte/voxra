@@ -19,7 +19,7 @@
 ## Wallet
 - [ ] Package recharge success credits once (duplicate webhook safe)
 - [ ] Custom amount recharge
-- [ ] Deep link `voxora://wallet` return + auto verify-pending
+- [ ] Deep link `simpletalk://wallet` return + auto verify-pending
 - [ ] Minutes estimate from last-viewed creator rate
 - [ ] Failed / pending verify-pending recovery
 

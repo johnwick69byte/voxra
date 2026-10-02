@@ -1,4 +1,4 @@
-# Voxora
+# Simple Talk
 
 Instant audio & video calling between fans and creators. Greenfield rebuild — no appointments.
 
@@ -32,6 +32,6 @@ cd apps/mobile && yarn && npx expo start
 
 ## Brand
 
-- Package (Android): `com.voxora.app`
-- Bundle (iOS): `com.voxora.app`
-- Scheme: `voxora://`
+- Package (Android): `com.simpletalk.app`
+- Bundle (iOS): `com.simpletalk.app`
+- Scheme: `simpletalk://`

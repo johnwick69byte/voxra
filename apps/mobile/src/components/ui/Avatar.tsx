@@ -13,7 +13,7 @@ export function Avatar({
   size?: number;
   style?: ViewStyle;
 }) {
-  const fallback = `https://i.pravatar.cc/${size * 2}?u=${encodeURIComponent(name || "voxora")}`;
+  const fallback = `https://i.pravatar.cc/${size * 2}?u=${encodeURIComponent(name || "simpletalk")}`;
   const initial = (name || "?").trim().charAt(0).toUpperCase();
   return (
     <View style={[{ width: size, height: size, borderRadius: size * 0.32, overflow: "hidden" }, style]}>

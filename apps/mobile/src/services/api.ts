@@ -1,5 +1,6 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { AUTH_TOKEN_KEY, AUTH_TOKEN_KEY_LEGACY } from "../theme/brand";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "https://voxra-dkfe.onrender.com/api";
 
@@ -9,7 +10,9 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem("voxora_token");
+  const token =
+    (await AsyncStorage.getItem(AUTH_TOKEN_KEY)) ||
+    (await AsyncStorage.getItem(AUTH_TOKEN_KEY_LEGACY));
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

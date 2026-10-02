@@ -8,6 +8,7 @@ import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText, Input } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
+import { APP_NAME } from "../../src/theme/brand";
 
 export default function CompleteProfile() {
   const router = useRouter();
@@ -86,7 +87,7 @@ export default function CompleteProfile() {
       contentContainerStyle={{ paddingBottom: 40 }}
       keyboardShouldPersistTaps="handled"
     >
-      <AppText style={styles.brand}>Voxora</AppText>
+      <AppText style={styles.brand}>{APP_NAME}</AppText>
       <AppText variant="title" style={{ marginTop: 8 }}>
         Almost there
       </AppText>

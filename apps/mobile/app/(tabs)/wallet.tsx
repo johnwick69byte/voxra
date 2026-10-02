@@ -139,7 +139,7 @@ export default function WalletScreen() {
       Toast.show({
         type: "info",
         text1: "Complete payment",
-        text2: "Return via voxora://wallet",
+        text2: "Return via simpletalk://wallet",
       });
     } catch (e: any) {
       Toast.show({

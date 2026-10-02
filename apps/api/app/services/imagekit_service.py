@@ -29,7 +29,7 @@ async def upload_base64_image(data_url: str, *, folder: str = "verification") ->
 
     if not settings.imagekit_private_key or not settings.imagekit_public_key:
         # Dev: return opaque placeholder URL embedding id (client still stores reference)
-        return f"https://placeholder.voxora.local/{folder}/{uuid.uuid4().hex}.jpg"
+        return f"https://placeholder.simpletalk.local/{folder}/{uuid.uuid4().hex}.jpg"
 
     try:
         # ImageKit REST upload
@@ -37,7 +37,7 @@ async def upload_base64_image(data_url: str, *, folder: str = "verification") ->
         files = {
             "file": (f"{folder}_{uuid.uuid4().hex}.jpg", base64.b64decode(raw), "image/jpeg"),
             "fileName": (None, f"{folder}_{uuid.uuid4().hex}.jpg"),
-            "folder": (None, f"/voxora/{folder}"),
+            "folder": (None, f"/simpletalk/{folder}"),
         }
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(

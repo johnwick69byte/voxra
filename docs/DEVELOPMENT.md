@@ -1,8 +1,8 @@
-# Voxora development guide
+# Simple Talk development guide
 
 ## Stack
 - **API:** FastAPI + Socket.IO + MongoDB + Redis (`apps/api`)
-- **Mobile:** Expo 54 / React Native (`apps/mobile`) — brand **Voxora**, scheme `voxora://`
+- **Mobile:** Expo 54 / React Native (`apps/mobile`) — brand **Simple Talk**, scheme `simpletalk://`
 - **Admin:** Vite React (`apps/admin`)
 
 ## Phase checklist (implemented in scaffold)
@@ -26,7 +26,7 @@ Bootstrap admin: open admin → **Bootstrap first admin** (or `POST /api/admin/b
 Dev OTP: `123456`
 
 ## Store / launch notes
-- Android package / iOS bundle: `com.voxora.app`
+- Android package / iOS bundle: `com.simpletalk.app`
 - Configure Firebase, Agora, Trustope, ImageKit in `apps/api/.env`
 - EAS: set projectId in `app.json`; add CallKit/ConnectionService native modules for production ringing UX
 - Load-test ring + bill paths before soft launch

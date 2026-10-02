@@ -1,4 +1,4 @@
-# Migration notes (InstaConnect → Voxora)
+# Migration notes (InstaConnect → Simple Talk)
 
 Optional one-time import from celebconnect-v2 MongoDB.
 

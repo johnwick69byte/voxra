@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("Redis unavailable at startup — presence/locks degraded until Redis is up")
     task = asyncio.create_task(_sweeper_loop())
-    logger.info("Voxora API started")
+    logger.info("Simple Talk API started")
     yield
     task.cancel()
     try:
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
 
 
 settings = get_settings()
-app = FastAPI(title="Voxora API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Simple Talk API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list or ["*"],

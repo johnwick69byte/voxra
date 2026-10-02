@@ -7,7 +7,7 @@ export default function Terms() {
     <ScrollView style={styles.wrap} contentContainerStyle={{ padding: 24, paddingTop: 64, paddingBottom: 48 }}>
       <AppText style={styles.title}>Terms of Service</AppText>
       <AppText style={styles.body}>
-        By using Voxora you agree to these terms. Instant audio/video sessions are prepaid from your
+        By using Simple Talk you agree to these terms. Instant audio/video sessions are prepaid from your
         wallet balance at the creator’s published per-minute rates.
       </AppText>
       <AppText style={styles.h}>Accounts</AppText>

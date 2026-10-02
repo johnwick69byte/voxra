@@ -32,7 +32,7 @@ async def notify_followers_creator_online(creator_id: str, *, reason: str = "onl
     follows = await db.follows.find({"creator_id": creator_id}, {"_id": 0, "follower_id": 1}).to_list(2000)
     sent = 0
     title = f"{name} is online"
-    body = "They're available for an instant call on Voxora."
+    body = "They're available for an instant call on Simple Talk."
     for f in follows:
         fid = f["follower_id"]
         await db.notifications.insert_one(

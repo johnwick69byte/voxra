@@ -7,7 +7,7 @@ export default function Privacy() {
     <ScrollView style={styles.wrap} contentContainerStyle={{ padding: 24, paddingTop: 64, paddingBottom: 48 }}>
       <AppText style={styles.title}>Privacy Policy</AppText>
       <AppText style={styles.body}>
-        Voxora (“we”) operates instant audio and video calling between fans and creators. This policy
+        Simple Talk (“we”) operates instant audio and video calling between fans and creators. This policy
         explains what we collect and why.
       </AppText>
       <AppText style={styles.h}>Data we collect</AppText>

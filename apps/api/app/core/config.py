@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     min_video_rate: float = 7.0
     app_min_version_android: str = "1.0.0"
     app_min_version_ios: str = "1.0.0"
-    deep_link_scheme: str = "voxora"
+    deep_link_scheme: str = "simpletalk"
 
     @property
     def cors_origin_list(self) -> List[str]:

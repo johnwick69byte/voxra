@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -33,9 +34,13 @@ function ScaleTabButton(props: any) {
 export default function TabsLayout() {
   const userType = useAuthStore((s) => s.user?.user_type);
   const isCreator = userType === "creator";
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 16 : 8);
+  const tabBarHeight = 52 + bottomInset;
 
   return (
     <Tabs
+      safeAreaInsets={{ bottom: 0 }}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: theme.colors.brandLight,
@@ -44,8 +49,9 @@ export default function TabsLayout() {
           backgroundColor: theme.colors.backgroundElevated,
           borderTopColor: theme.colors.border,
           borderTopWidth: 1,
-          height: Platform.OS === "ios" ? 88 : 64,
+          height: tabBarHeight,
           paddingTop: 6,
+          paddingBottom: bottomInset,
         },
         tabBarLabelStyle: {
           fontFamily: theme.font.bodySemi,

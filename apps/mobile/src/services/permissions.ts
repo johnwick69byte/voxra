@@ -10,7 +10,7 @@ export async function ensureMicPermission(): Promise<boolean> {
   if (existing === "granted") return true;
   const proceed = await ask(
     "Microphone access",
-    "Voxora needs your microphone for instant audio and video calls."
+    "Simple Talk needs your microphone for instant audio and video calls."
   );
   if (!proceed) return false;
   const { status } = await Audio.requestPermissionsAsync();
@@ -22,7 +22,7 @@ export async function ensureCameraPermission(): Promise<boolean> {
   if (existing === "granted") return true;
   const proceed = await ask(
     "Camera access",
-    "Voxora needs your camera for video calls and creator verification selfies."
+    "Simple Talk needs your camera for video calls and creator verification selfies."
   );
   if (!proceed) return false;
   const { status } = await Camera.requestCameraPermissionsAsync();
@@ -84,6 +84,6 @@ function ask(title: string, message: string): Promise<boolean> {
 
 export function permissionPlatformHint(): string {
   return Platform.OS === "ios"
-    ? "You can change this later in Settings → Voxora"
+    ? "You can change this later in Settings → Simple Talk"
     : "You can change this later in App info → Permissions";
 }

@@ -6,6 +6,7 @@ import { callsAPI, creatorsAPI } from "../src/services/api";
 import { PrimaryButton } from "../src/components/PrimaryButton";
 import { AppText } from "../src/components/ui";
 import { theme } from "../src/theme/tokens";
+import { APP_NAME } from "../src/theme/brand";
 
 export default function CallReview() {
   const { callId, peerName, peerId } = useLocalSearchParams<{
@@ -90,7 +91,7 @@ export default function CallReview() {
 
   return (
     <View style={styles.wrap}>
-      <AppText style={styles.brand}>Voxora</AppText>
+      <AppText style={styles.brand}>{APP_NAME}</AppText>
       <AppText variant="title" style={{ marginTop: 12 }}>
         How was your call?
       </AppText>

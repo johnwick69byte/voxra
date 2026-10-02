@@ -293,7 +293,7 @@ async def approve_creator(user_id: str, admin: dict = Depends(require_admin)):
         await push_service.send_push(
             push["device_push_token"],
             title="You're approved!",
-            body="Your Voxora creator profile is live. Go online and take calls.",
+            body="Your Simple Talk creator profile is live. Go online and take calls.",
             data={"type": "profile_verified"},
         )
     return {"success": True}

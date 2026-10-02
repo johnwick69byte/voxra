@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { PrimaryButton } from "../src/components/PrimaryButton";
 import { AppText } from "../src/components/ui";
 import { theme } from "../src/theme/tokens";
+import { APP_NAME } from "../src/theme/brand";
 import { useAuthStore } from "../src/store/authStore";
 import { creatorsAPI } from "../src/services/api";
 
@@ -32,7 +33,7 @@ export default function PendingApproval() {
 
   return (
     <View style={styles.wrap}>
-      <AppText style={styles.brand}>Voxora</AppText>
+      <AppText style={styles.brand}>{APP_NAME}</AppText>
       <AppText variant="title" style={{ marginTop: 16 }}>
         {rejected ? "Verification rejected" : "Under review"}
       </AppText>

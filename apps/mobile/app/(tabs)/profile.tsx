@@ -4,6 +4,7 @@ import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText, Avatar } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
+import { APP_NAME } from "../../src/theme/brand";
 
 export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
@@ -12,7 +13,7 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={{ paddingBottom: 40 }}>
-      <AppText style={styles.brand}>Voxora</AppText>
+      <AppText style={styles.brand}>{APP_NAME}</AppText>
       <View style={styles.heroRow}>
         <Avatar uri={user?.picture} name={user?.name || "You"} size={72} />
         <View style={{ flex: 1 }}>

@@ -12,12 +12,14 @@ import Health from "./pages/Health";
 
 function Shell({ children }: { children: React.ReactNode }) {
   const nav = useNavigate();
-  const token = localStorage.getItem("voxora_admin_token");
+  const token =
+    localStorage.getItem("simpletalk_admin_token") ||
+    localStorage.getItem("voxora_admin_token");
   if (!token) return <Navigate to="/login" replace />;
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div className="logo">Voxora</div>
+        <div className="logo">Simple Talk</div>
         <NavLink to="/" end>Overview</NavLink>
         <NavLink to="/live">Live ops</NavLink>
         <NavLink to="/creators">Creators</NavLink>
@@ -30,6 +32,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           className="btn ghost"
           style={{ marginTop: "auto", color: "#fff", borderColor: "rgba(255,255,255,0.2)" }}
           onClick={() => {
+            localStorage.removeItem("simpletalk_admin_token");
             localStorage.removeItem("voxora_admin_token");
             nav("/login");
           }}

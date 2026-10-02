@@ -5,6 +5,7 @@ import Toast from "react-native-toast-message";
 import { creatorsAPI } from "../src/services/api";
 import { PrimaryButton } from "../src/components/PrimaryButton";
 import { theme } from "../src/theme/tokens";
+import { APP_NAME } from "../src/theme/brand";
 
 export default function PricingSetup() {
   const router = useRouter();
@@ -31,7 +32,7 @@ export default function PricingSetup() {
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.brand}>Voxora</Text>
+      <Text style={styles.brand}>{APP_NAME}</Text>
       <Text style={styles.title}>Your call rates</Text>
       <Text style={styles.sub}>Instant audio & video only — no appointments.</Text>
       <Text style={styles.label}>Audio ₹/min (min 3)</Text>

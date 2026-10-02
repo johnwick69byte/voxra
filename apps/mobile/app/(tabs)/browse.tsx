@@ -24,6 +24,7 @@ import {
   EmptyState,
 } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
+import { APP_NAME } from "../../src/theme/brand";
 import Toast from "react-native-toast-message";
 
 const SORTS = [
@@ -121,7 +122,7 @@ export default function BrowseScreen() {
     return (
       <View style={styles.wrap}>
         <LinearGradient colors={[...theme.gradients.soft]} style={styles.header}>
-          <AppText style={styles.brandDisplay}>Voxora</AppText>
+          <AppText style={styles.brandDisplay}>{APP_NAME}</AppText>
           <AppText variant="subtitle" style={{ marginTop: 8 }}>
             Hi {user?.name || "Creator"}
           </AppText>
@@ -183,7 +184,7 @@ export default function BrowseScreen() {
   return (
     <View style={styles.wrap}>
       <View style={styles.headerLite}>
-        <AppText style={styles.brandDisplay}>Voxora</AppText>
+        <AppText style={styles.brandDisplay}>{APP_NAME}</AppText>
         <AppText variant="subtitle" style={{ marginTop: 4 }}>
           Creators ready for instant calls
         </AppText>

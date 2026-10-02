@@ -29,7 +29,7 @@ services:
       - key: APP_MIN_VERSION_IOS
         value: "1.0.0"
       - key: DEEP_LINK_SCHEME
-        value: voxora
+        value: simpletalk
       - key: SOCKETIO_CORS_ORIGINS
         value: "*"
       - key: DEV_OTP_CODE

@@ -5,7 +5,9 @@ const API = import.meta.env.VITE_API_URL || "https://voxra-dkfe.onrender.com/api
 export const api = axios.create({ baseURL: API });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("voxora_admin_token");
+  const token =
+    localStorage.getItem("simpletalk_admin_token") ||
+    localStorage.getItem("voxora_admin_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });

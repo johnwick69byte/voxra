@@ -4,9 +4,10 @@
  * No-ops in Expo Go.
  */
 import { Platform } from "react-native";
+import { APP_NAME } from "../theme/brand";
 import { hasNotifeeNative } from "./nativeAvailability";
 
-const FGS_ID = "voxora_call_fgs";
+const FGS_ID = "simpletalk_call_fgs";
 
 function getNotifee(): any | null {
   if (!hasNotifeeNative()) return null;
@@ -35,7 +36,7 @@ export async function startCallForegroundService(opts: {
     });
     await notifee.displayNotification({
       id: FGS_ID,
-      title: `Voxora ${opts.callType === "VIDEO" ? "video" : "audio"} call`,
+      title: `${APP_NAME} ${opts.callType === "VIDEO" ? "video" : "audio"} call`,
       body: `In call with ${opts.peerName}`,
       data: { type: "ongoing_call", call_id: opts.callId },
       android: {

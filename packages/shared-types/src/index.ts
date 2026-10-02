@@ -1,4 +1,4 @@
-/** Shared Voxora TypeScript types. */
+/** Shared Simple Talk TypeScript types. */
 
 export type UserType = "user" | "creator" | "admin";
 

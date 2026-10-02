@@ -13,7 +13,7 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await adminAPI.login(email, password);
-      localStorage.setItem("voxora_admin_token", res.data.token);
+      localStorage.setItem("simpletalk_admin_token", res.data.token);
       nav("/");
     } catch {
       toast.error("Login failed — try bootstrap first");
@@ -25,7 +25,7 @@ export default function Login() {
   const bootstrap = async () => {
     setLoading(true);
     try {
-      await adminAPI.bootstrap(email, password, "Voxora Admin");
+      await adminAPI.bootstrap(email, password, "Simple Talk Admin");
       toast.success("Admin created — logging in");
       await login();
     } catch (e: any) {
@@ -37,7 +37,7 @@ export default function Login() {
   return (
     <div className="login-wrap">
       <div className="login-card">
-        <h1>Voxora</h1>
+        <h1>Simple Talk</h1>
         <p style={{ color: "var(--muted)", marginTop: 0 }}>Ops dashboard — instant calls only</p>
         <div className="field">
           <label>Email</label>

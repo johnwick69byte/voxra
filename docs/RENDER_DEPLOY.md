@@ -1,4 +1,4 @@
-# Deploy Voxora API on Render
+# Deploy Simple Talk API on Render
 
 **Live API:** https://voxra-dkfe.onrender.com  
 **API prefix:** https://voxra-dkfe.onrender.com/api  

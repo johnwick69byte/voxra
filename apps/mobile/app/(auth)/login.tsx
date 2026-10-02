@@ -15,6 +15,7 @@ import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText, Input } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
+import { APP_NAME } from "../../src/theme/brand";
 
 const RESEND_COOLDOWN_S = 30;
 
@@ -120,7 +121,7 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <LinearGradient colors={[...theme.gradients.hero]} style={styles.hero}>
-        <AppText style={styles.brand}>Voxora</AppText>
+        <AppText style={styles.brand}>{APP_NAME}</AppText>
         <AppText style={styles.tagline}>
           Instant voice & video with creators you love.
         </AppText>
@@ -193,7 +194,7 @@ const styles = StyleSheet.create({
   },
   brand: {
     fontFamily: theme.font.display,
-    fontSize: 52,
+    fontSize: 42,
     color: theme.colors.text,
     letterSpacing: -1.4,
   },

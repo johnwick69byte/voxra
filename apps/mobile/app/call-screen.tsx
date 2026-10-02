@@ -18,6 +18,7 @@ import { callsAPI } from "../src/services/api";
 import { socketService } from "../src/services/socket";
 import { useCallStore } from "../src/store/callStore";
 import { theme } from "../src/theme/tokens";
+import { APP_NAME } from "../src/theme/brand";
 import {
   createAndJoinEngine,
   leaveAndDestroy,
@@ -463,7 +464,7 @@ export default function CallScreen() {
       )}
 
       <View style={styles.overlay}>
-        <Text style={styles.brand}>Voxora</Text>
+        <Text style={styles.brand}>{APP_NAME}</Text>
         {reconnecting ? (
           <View style={styles.banner}>
             <Text style={styles.bannerText}>Reconnecting…</Text>

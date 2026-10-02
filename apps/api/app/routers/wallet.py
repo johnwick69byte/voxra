@@ -6,6 +6,7 @@ from app.core.security import require_user, require_creator
 from app.models.schemas import RechargeInitiateRequest, WithdrawalRequest
 from app.services import payment_service, wallet_service
 from app.core.database import get_db
+from app.core.config import get_settings
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/wallet", tags=["wallet"])
@@ -56,11 +57,12 @@ async def recharge_initiate(body: RechargeInitiateRequest, user: dict = Depends(
 @router.get("/recharge/dev-complete")
 async def recharge_dev_complete(order_id: str):
     result = await payment_service.process_order_success(order_id)
+    scheme = get_settings().deep_link_scheme or "simpletalk"
     html = f"""
     <html><body style="font-family:system-ui;padding:40px;text-align:center">
       <h1>Payment {'successful' if result.get('success') else 'failed'}</h1>
       <p>Order {order_id}</p>
-      <p><a href="voxora://wallet">Return to Voxora</a></p>
+      <p><a href="{scheme}://wallet">Return to Simple Talk</a></p>
     </body></html>
     """
     return HTMLResponse(html)
@@ -70,10 +72,11 @@ async def recharge_dev_complete(order_id: str):
 async def recharge_return(order_id: str = ""):
     if order_id:
         await payment_service.process_order_success(order_id)
-    html = """
+    scheme = get_settings().deep_link_scheme or "simpletalk"
+    html = f"""
     <html><body style="font-family:system-ui;padding:40px;text-align:center">
       <h1>Payment processing</h1>
-      <p><a href="voxora://wallet">Return to Voxora</a></p>
+      <p><a href="{scheme}://wallet">Return to Simple Talk</a></p>
     </body></html>
     """
     return HTMLResponse(html)

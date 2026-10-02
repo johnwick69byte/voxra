@@ -18,21 +18,21 @@ export async function setupCallKeep() {
   try {
     await CallKeep.setup({
       ios: {
-        appName: "Voxora",
+        appName: "Simple Talk",
         supportsVideo: true,
         maximumCallGroups: "1",
         maximumCallsPerCallGroup: "1",
       },
       android: {
         alertTitle: "Phone account permission",
-        alertDescription: "Voxora needs phone account access to show incoming calls on the lock screen.",
+        alertDescription: "Simple Talk needs phone account access to show incoming calls on the lock screen.",
         cancelButton: "Cancel",
         okButton: "OK",
         additionalPermissions: [],
         foregroundService: {
           channelId: "ongoing_calls",
           channelName: "Ongoing Calls",
-          notificationTitle: "Voxora call in progress",
+          notificationTitle: "Simple Talk call in progress",
         },
       },
     });

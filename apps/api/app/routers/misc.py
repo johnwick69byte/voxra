@@ -24,7 +24,7 @@ async def referral_apply(body: ApplyReferralRequest, user: dict = Depends(requir
 
 @router.get("/healthz")
 async def healthz():
-    return {"ok": True, "service": "voxora-api"}
+    return {"ok": True, "service": "simpletalk-api"}
 
 
 @router.get("/app/config")
@@ -83,7 +83,7 @@ async def privacy():
     return {
         "title": "Privacy Policy",
         "updated": "2026-08-02",
-        "body": "Voxora collects account, device, and call metadata needed to operate instant audio/video sessions and payments. We do not sell personal data.",
+        "body": "Simple Talk collects account, device, and call metadata needed to operate instant audio/video sessions and payments. We do not sell personal data.",
     }
 
 
@@ -92,5 +92,5 @@ async def terms():
     return {
         "title": "Terms of Service",
         "updated": "2026-08-02",
-        "body": "By using Voxora you agree to respectful conduct. Abuse or nudity may result in bans. Wallet recharges are prepaid credits for instant calls.",
+        "body": "By using Simple Talk you agree to respectful conduct. Abuse or nudity may result in bans. Wallet recharges are prepaid credits for instant calls.",
     }

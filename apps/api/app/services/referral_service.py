@@ -47,7 +47,7 @@ async def get_referral_overview(user: dict) -> dict:
     ).to_list(200)
     earned_total = round(sum(float(r.get("amount") or 0) for r in earned_rows), 2)
     pending_count = sum(1 for r in referred if not r.get("referral_rewarded_at"))
-    scheme = settings.deep_link_scheme or "voxora"
+    scheme = settings.deep_link_scheme or "simpletalk"
     referrals = [
         {
             "user_id": r["user_id"],

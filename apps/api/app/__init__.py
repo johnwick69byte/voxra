@@ -1,1 +1,1 @@
-# Voxora API package
+# Simple Talk API package

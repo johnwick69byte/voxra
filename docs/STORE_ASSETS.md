@@ -20,7 +20,7 @@ Place exports in `apps/mobile/store/screenshots/` (create locally; do not commit
 ## Privacy / data safety questionnaire
 
 Use in-app screens as source of truth:
-- Privacy: `voxora://` → Profile → Privacy policy
+- Privacy: `simpletalk://` → Profile → Privacy policy
 - Terms: Profile → Terms of service
 - Account deletion: `POST /api/auth/delete-account`
 
@@ -32,7 +32,7 @@ Sharing: payment processor (Trustope), ImageKit (verification selfies), FCM, Ago
 
 1. Deploy API with `ENVIRONMENT=production` and `ALLOW_ADMIN_BOOTSTRAP=false`.
 2. Watch Admin → Live Ops: miss rate, FCM fail count, stuck BUSY.
-3. Confirm wallet deep-link return `voxora://wallet` + verify-pending.
+3. Confirm wallet deep-link return `simpletalk://wallet` + verify-pending.
 4. Run through [LAUNCH_CHECKLIST.md](./LAUNCH_CHECKLIST.md) on 2 Android + 1 iOS devices.
 5. Cap soft launch to invite cohort; raise recharge rate limits only after 48h clean ops.
 

@@ -201,11 +201,29 @@ async def _validate_messagecentral_otp(verification_id: str, code: str) -> bool:
         return False
 
 
+def _dev_otp_enabled() -> bool:
+    return (get_settings().environment or "").strip().lower() == "development"
+
+
 async def send_otp(country_code: str, phone: str) -> dict:
     settings = get_settings()
     full = _normalize_phone(country_code, phone)
     db = get_db()
     await db.otp_codes.delete_many({"phone": full})
+
+    if _dev_otp_enabled():
+        code = settings.dev_otp_code or "123456"
+        await db.otp_codes.insert_one(
+            {
+                "phone": full,
+                "code": code,
+                "provider": "dev",
+                "created_at": datetime.now(timezone.utc),
+                "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
+            }
+        )
+        logger.info("DEV OTP for %s: %s", full, code)
+        return {"success": True, "message": "OTP sent", "dev": True, "dev_code": code}
 
     if settings.messagecentral_api_key:
         verification_id = await _send_messagecentral_otp(full)
@@ -226,6 +244,13 @@ async def send_otp(country_code: str, phone: str) -> dict:
         )
         return {"success": True, "message": "OTP sent", "dev": False}
 
+    if (settings.environment or "").strip().lower() == "production":
+        return {
+            "success": False,
+            "message": "OTP SMS is not configured.",
+            "dev": False,
+        }
+
     code = settings.dev_otp_code or "".join(random.choices(string.digits, k=6))
     await db.otp_codes.insert_one(
         {
@@ -237,7 +262,7 @@ async def send_otp(country_code: str, phone: str) -> dict:
         }
     )
     logger.info("DEV OTP for %s: %s", full, code)
-    return {"success": True, "message": "OTP sent", "dev": True}
+    return {"success": True, "message": "OTP sent", "dev": True, "dev_code": code}
 
 
 async def verify_otp(
@@ -250,12 +275,13 @@ async def verify_otp(
     db = get_db()
     record = await db.otp_codes.find_one({"phone": full}, sort=[("created_at", -1)])
     settings = get_settings()
+    dev_code = settings.dev_otp_code or "123456"
     valid = False
-    if record and record.get("verification_id"):
+    if _dev_otp_enabled() and otp == dev_code:
+        valid = True
+    elif record and record.get("verification_id"):
         valid = await _validate_messagecentral_otp(str(record["verification_id"]), otp)
     elif record and record.get("code") == otp:
-        valid = True
-    elif not settings.messagecentral_api_key and settings.dev_otp_code and otp == settings.dev_otp_code:
         valid = True
     if not valid:
         return {"success": False, "message": "Invalid OTP"}

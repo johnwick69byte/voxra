@@ -27,6 +27,8 @@ export const authAPI = {
   me: () => api.get("/auth/me"),
   completeProfile: (data: Record<string, unknown>) =>
     api.post("/auth/complete-profile", data),
+  checkUsername: (username: string) =>
+    api.get("/auth/check-username", { params: { username } }),
   updateProfile: (data: Record<string, unknown>) =>
     api.post("/auth/update-profile", data),
 };
@@ -42,8 +44,11 @@ export const creatorsAPI = {
   toggleDnd: () => api.post("/profile/dnd"),
   pushToken: (device_push_token: string, platform: string) =>
     api.post("/profile/push-token", { device_push_token, platform }),
-  submitVerificationSelfie: (image_base64: string) =>
-    api.post("/profile/verification/selfie", { image_base64 }),
+  addImage: (image_base64: string) => api.post("/profile/images", { image_base64 }),
+  deleteImage: (image_url: string) => api.delete("/profile/images", { data: { image_url } }),
+  startVerification: () => api.post("/profile/verification/start"),
+  submitVerificationSelfie: (verification_id: string, image_base64: string) =>
+    api.post("/profile/verification/selfie", { verification_id, image_base64 }),
   onboardingStatus: () => api.get("/profile/onboarding-status"),
   block: (userId: string) => api.post(`/users/${userId}/block`),
 };

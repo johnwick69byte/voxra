@@ -17,11 +17,21 @@ export default function Creators() {
       <div className="panel">
         <table>
           <thead>
-            <tr><th>Selfie</th><th>Name</th><th>Phone</th><th>Audio</th><th>Video</th><th>Status</th><th></th></tr>
+            <tr><th>Photos</th><th>Selfie</th><th>Fingers</th><th>Name</th><th>Phone</th><th>Audio</th><th>Video</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             {items.map((c) => (
               <tr key={c.user_id}>
+                <td>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {(c.images || []).slice(0, 4).map((url: string) => (
+                      <a key={url} href={url} target="_blank" rel="noreferrer">
+                        <img src={url} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6 }} />
+                      </a>
+                    ))}
+                    {!(c.images || []).length && "—"}
+                  </div>
+                </td>
                 <td>
                   {c.verification_selfie_url ? (
                     <a href={c.verification_selfie_url} target="_blank" rel="noreferrer">
@@ -29,6 +39,7 @@ export default function Creators() {
                     </a>
                   ) : "—"}
                 </td>
+                <td>{c.gesture_number ?? "—"}</td>
                 <td>{c.user?.name || "—"}</td>
                 <td>{c.user?.phone || "—"}</td>
                 <td>₹{c.audio_rate_per_minute}</td>
@@ -40,7 +51,7 @@ export default function Creators() {
                 </td>
               </tr>
             ))}
-            {!items.length && <tr><td colSpan={7} style={{ color: "var(--muted)" }}>Queue empty</td></tr>}
+            {!items.length && <tr><td colSpan={9} style={{ color: "var(--muted)" }}>Queue empty</td></tr>}
           </tbody>
         </table>
       </div>

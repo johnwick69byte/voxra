@@ -8,7 +8,10 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import { theme } from "../../src/theme/tokens";
+import { useEffect } from "react";
+import { useRouter } from "expo-router";
 import { useAuthStore } from "../../src/store/authStore";
+import { creatorsAPI } from "../../src/services/api";
 
 function ScaleTabButton(props: any) {
   const scale = useSharedValue(1);
@@ -31,9 +34,28 @@ function ScaleTabButton(props: any) {
   );
 }
 
+const STEP_HREF: Record<string, string> = {
+  complete_profile: "/(auth)/complete-profile",
+  pricing_setup: "/pricing-setup",
+  creator_photos: "/creator-photos",
+  verification_selfie: "/verification-selfie",
+  pending_approval: "/pending-approval",
+};
+
 export default function TabsLayout() {
+  const router = useRouter();
   const userType = useAuthStore((s) => s.user?.user_type);
+  const userId = useAuthStore((s) => s.user?.user_id);
   const isCreator = userType === "creator";
+
+  useEffect(() => {
+    if (!isCreator || !userId) return;
+    creatorsAPI.onboardingStatus().then((res) => {
+      const step = res.data?.next_step;
+      const href = step && STEP_HREF[step];
+      if (href) router.replace(href as never);
+    });
+  }, [isCreator, userId]);
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 16 : 8);
   const tabBarHeight = 52 + bottomInset;

@@ -39,8 +39,7 @@ export default function LoginScreen() {
   const [otp, setOtp] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [role, setRole] = useState<"user" | "creator">("user");
-  const [devHint, setDevHint] = useState(false);
+  const [devCode, setDevCode] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -80,12 +79,12 @@ export default function LoginScreen() {
       const res = await authAPI.sendOtp(digits);
       setSent(true);
       startCooldown();
-      const isDev = res.data?.dev === true;
-      setDevHint(isDev && __DEV__);
+      const code = res.data?.dev ? res.data?.dev_code || null : null;
+      setDevCode(code);
       Toast.show({
         type: "success",
         text1: "OTP sent",
-        text2: isDev && __DEV__ ? "Dev mode — check API logs" : "Check your SMS",
+        text2: code ? `Dev code: ${code}` : "Check your SMS",
       });
     } catch (e: any) {
       const status = e?.response?.status;
@@ -106,7 +105,7 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      const res = await authAPI.verifyOtp(digits, otpDigits, role);
+      const res = await authAPI.verifyOtp(digits, otpDigits);
       await setSession(res.data.token, res.data.user);
       router.replace("/");
     } catch (e: any) {
@@ -133,19 +132,6 @@ export default function LoginScreen() {
         </AppText>
       </LinearGradient>
       <Animated.View entering={FadeInDown.duration(420)} style={styles.sheet}>
-        <View style={styles.roleRow}>
-          {(["user", "creator"] as const).map((r) => (
-            <Pressable
-              key={r}
-              onPress={() => setRole(r)}
-              style={[styles.roleChip, role === r && styles.roleActive]}
-            >
-              <AppText style={[styles.roleText, role === r && styles.roleTextActive]}>
-                {r === "user" ? "Fan" : "Creator"}
-              </AppText>
-            </Pressable>
-          ))}
-        </View>
         <Input
           label="Phone"
           keyboardType="phone-pad"
@@ -164,9 +150,9 @@ export default function LoginScreen() {
             maxLength={6}
           />
         )}
-        {devHint ? (
+        {devCode ? (
           <AppText variant="caption" style={{ marginTop: 8 }}>
-            Development OTP is configured on the API.
+            Dev code: {devCode}
           </AppText>
         ) : null}
         <PrimaryButton
@@ -221,18 +207,4 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     padding: 24,
   },
-  roleRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
-  roleChip: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface,
-    alignItems: "center",
-  },
-  roleActive: { backgroundColor: theme.colors.brand },
-  roleText: {
-    fontFamily: theme.font.bodySemi,
-    color: theme.colors.textSecondary,
-  },
-  roleTextActive: { color: theme.colors.onBrand },
 });

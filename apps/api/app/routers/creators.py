@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
 import json
+import random
+import uuid
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -8,7 +11,13 @@ from app.core.database import get_db
 from app.core.database_redis import get_redis, redis_available
 from app.core.security import require_creator, require_user
 from app.core.socket import emit_to_user
-from app.models.schemas import PricingSetupRequest, PushTokenRequest
+from app.models.schemas import (
+    ImageDeleteRequest,
+    ImageUploadRequest,
+    PricingSetupRequest,
+    PushTokenRequest,
+    VerificationSubmitRequest,
+)
 from app.services import presence_service
 
 router = APIRouter(tags=["creators"])
@@ -128,48 +137,164 @@ async def browse_creators(
     return response
 
 
-@router.post("/profile/verification/selfie")
-async def submit_verification_selfie(body: dict, user: dict = Depends(require_creator)):
-    """Body: { image_base64: data-url or https url } from live camera capture."""
+def _onboarding_payload(user: dict, profile: Optional[dict], next_step: str) -> dict:
+    profile = profile or {}
+    return {
+        "success": True,
+        "next_step": next_step,
+        "verification_status": profile.get("verification_status"),
+        "gesture_number": profile.get("gesture_number"),
+        "images": profile.get("images") or [],
+        "verification_selfie_url": profile.get("verification_selfie_url"),
+        "name": user.get("name"),
+        "username": user.get("username"),
+    }
+
+
+@router.post("/profile/images")
+async def add_profile_image(body: ImageUploadRequest, user: dict = Depends(require_creator)):
     from app.services import imagekit_service
 
-    image = body.get("image_base64") or body.get("image_url") or ""
-    if not image:
-        raise HTTPException(400, "image_base64 required")
-    url = await imagekit_service.upload_base64_image(image, folder="verification")
     db = get_db()
+    profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    images = list((profile or {}).get("images") or [])
+    if len(images) >= 6:
+        raise HTTPException(400, "You can add up to 6 photos")
+    url = await imagekit_service.upload_base64_image(body.image_base64, folder="gallery")
+    await db.creator_profiles.update_one(
+        {"user_id": user["user_id"]},
+        {"$push": {"images": url}},
+        upsert=True,
+    )
+    images.append(url)
+    return {"success": True, "image_url": url, "images": images}
+
+
+@router.delete("/profile/images")
+async def delete_profile_image(body: ImageDeleteRequest, user: dict = Depends(require_creator)):
+    db = get_db()
+    await db.creator_profiles.update_one(
+        {"user_id": user["user_id"]},
+        {"$pull": {"images": body.image_url}},
+    )
+    profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return {"success": True, "images": (profile or {}).get("images") or []}
+
+
+@router.post("/profile/verification/start")
+async def start_verification(user: dict = Depends(require_creator)):
+    db = get_db()
+    profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not profile:
+        raise HTTPException(404, "Creator profile not found. Complete profile first.")
+    if profile.get("is_approved"):
+        raise HTTPException(400, "Creator is already verified")
+    existing = await db.verification_requests.find_one(
+        {"user_id": user["user_id"], "status": "PENDING"},
+        {"_id": 0},
+    )
+    if existing:
+        return {
+            "success": True,
+            "verification_id": existing["verification_id"],
+            "gesture_number": existing["gesture_number"],
+            "message": "Continue with your verification",
+        }
+    gesture_number = random.randint(1, 5)
+    verification_id = f"ver_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    await db.verification_requests.insert_one(
+        {
+            "verification_id": verification_id,
+            "user_id": user["user_id"],
+            "gesture_number": gesture_number,
+            "status": "PENDING",
+            "created_at": now,
+        }
+    )
+    await db.creator_profiles.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"verification_status": "pending_selfie", "gesture_number": gesture_number}},
+    )
+    return {
+        "success": True,
+        "verification_id": verification_id,
+        "gesture_number": gesture_number,
+        "message": f"Hold up {gesture_number} finger(s) and take a selfie",
+    }
+
+
+@router.post("/profile/verification/selfie")
+async def submit_verification_selfie(body: VerificationSubmitRequest, user: dict = Depends(require_creator)):
+    """Live camera capture that must show the assigned finger count."""
+    from app.services import imagekit_service
+
+    db = get_db()
+    request = await db.verification_requests.find_one(
+        {
+            "verification_id": body.verification_id,
+            "user_id": user["user_id"],
+            "status": "PENDING",
+        },
+        {"_id": 0},
+    )
+    if not request:
+        raise HTTPException(400, "Start verification again before submitting a selfie")
+    url = await imagekit_service.upload_base64_image(body.image_base64, folder="verification")
+    now = datetime.now(timezone.utc)
+    await db.verification_requests.update_one(
+        {"verification_id": body.verification_id},
+        {
+            "$set": {
+                "status": "SUBMITTED",
+                "photo_url": url,
+                "submitted_at": now,
+            }
+        },
+    )
     await db.creator_profiles.update_one(
         {"user_id": user["user_id"]},
         {
             "$set": {
                 "verification_selfie_url": url,
+                "gesture_number": request["gesture_number"],
                 "verification_status": "pending_review",
-                "verification_submitted_at": datetime.now(timezone.utc),
-            },
-            "$addToSet": {"images": url},
+                "verification_submitted_at": now,
+            }
         },
         upsert=True,
     )
-    return {"success": True, "verification_status": "pending_review", "url": url}
+    return {
+        "success": True,
+        "verification_status": "pending_review",
+        "gesture_number": request["gesture_number"],
+        "url": url,
+    }
 
 
 @router.get("/profile/onboarding-status")
 async def onboarding_status(user: dict = Depends(require_user)):
     """Used by mobile to resume creator onboarding after mid-quit."""
-    if user.get("user_type") != "creator":
-        return {"success": True, "next_step": "home", "verification_status": None}
     if not user.get("profile_complete"):
-        return {"success": True, "next_step": "complete_profile", "verification_status": None}
+        return _onboarding_payload(user, None, "complete_profile")
+    if user.get("user_type") != "creator":
+        return _onboarding_payload(user, None, "home")
     db = get_db()
     profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
     status = (profile or {}).get("verification_status") or "pending_pricing"
+    images = (profile or {}).get("images") or []
+    has_selfie = bool((profile or {}).get("verification_selfie_url"))
     if status in ("pending_profile", "pending_pricing") or not (profile or {}).get("audio_rate_per_minute"):
-        return {"success": True, "next_step": "pricing_setup", "verification_status": status}
-    if status == "pending_photos" or not (profile or {}).get("verification_selfie_url"):
-        return {"success": True, "next_step": "verification_selfie", "verification_status": status}
-    if status in ("pending_review", "rejected") or not (profile or {}).get("is_approved"):
-        return {"success": True, "next_step": "pending_approval", "verification_status": status}
-    return {"success": True, "next_step": "home", "verification_status": status}
+        return _onboarding_payload(user, profile, "pricing_setup")
+    if not images:
+        return _onboarding_payload(user, profile, "creator_photos")
+    if status == "rejected":
+        return _onboarding_payload(user, profile, "pending_approval")
+    if not has_selfie or status in ("pending_photos", "pending_selfie"):
+        return _onboarding_payload(user, profile, "verification_selfie")
+    if status == "pending_review" or not (profile or {}).get("is_approved"):
+        return _onboarding_payload(user, profile, "pending_approval")
+    return _onboarding_payload(user, profile, "home")
 
 
 @router.get("/creators/{creator_id}")
@@ -245,7 +370,7 @@ async def pricing_setup(body: PricingSetupRequest, user: dict = Depends(require_
         "success": True,
         "audio_rate_per_minute": audio,
         "video_rate_per_minute": video,
-        "next_step": "home" if already_approved else "verification_selfie",
+        "next_step": "home" if already_approved else "creator_photos",
     }
 
 
@@ -283,16 +408,6 @@ async def register_push(body: PushTokenRequest, user: dict = Depends(require_use
             }
         },
         upsert=True,
-    )
-    return {"success": True}
-
-
-@router.post("/profile/images")
-async def add_image(url: str, user: dict = Depends(require_creator)):
-    db = get_db()
-    await db.creator_profiles.update_one(
-        {"user_id": user["user_id"]},
-        {"$push": {"images": url}},
     )
     return {"success": True}
 

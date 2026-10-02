@@ -327,6 +327,10 @@ async def reject_creator(user_id: str, admin: dict = Depends(require_admin)):
         {"user_id": user_id},
         {"$set": {"is_approved": False, "verification_status": "rejected"}},
     )
+    await db.verification_requests.update_many(
+        {"user_id": user_id, "status": "PENDING"},
+        {"$set": {"status": "REJECTED"}},
+    )
     await _audit(admin["user_id"], "reject_creator", {"user_id": user_id})
     await _notify_user(
         user_id,

@@ -194,6 +194,7 @@ export default function RootLayout() {
         />
         <Stack.Screen name="creator/[id]" />
         <Stack.Screen name="pricing-setup" />
+        <Stack.Screen name="creator-photos" />
         <Stack.Screen name="verification-selfie" />
         <Stack.Screen name="pending-approval" />
         <Stack.Screen name="call-review" />

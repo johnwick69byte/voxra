@@ -1,6 +1,6 @@
-import { Audio } from "expo-av";
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 
-let active: Audio.Sound | null = null;
+let active: AudioPlayer | null = null;
 
 const RING_URI =
   "https://actions.google.com/sounds/v1/alarms/phone_alerts_and_rings.ogg";
@@ -8,16 +8,16 @@ const RING_URI =
 export async function playRingtone(loop = true) {
   try {
     await stopRingtone();
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: true,
-      shouldDuckAndroid: true,
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: "duckOthers",
     });
-    const { sound } = await Audio.Sound.createAsync(
-      { uri: RING_URI },
-      { isLooping: loop, volume: 0.85, shouldPlay: true }
-    );
-    active = sound;
+    const player = createAudioPlayer({ uri: RING_URI });
+    player.loop = loop;
+    player.volume = 0.85;
+    player.play();
+    active = player;
   } catch (e) {
     console.warn("[ringtone] play failed", e);
   }
@@ -26,8 +26,8 @@ export async function playRingtone(loop = true) {
 export async function stopRingtone() {
   try {
     if (active) {
-      await active.stopAsync();
-      await active.unloadAsync();
+      active.pause();
+      active.release();
       active = null;
     }
   } catch {

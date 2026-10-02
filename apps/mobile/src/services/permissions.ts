@@ -1,19 +1,19 @@
 import { Alert, Linking, Platform } from "react-native";
-import { Audio } from "expo-av";
+import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from "expo-audio";
 import { Camera } from "expo-camera";
 
 /**
  * Runtime permission gates with rationale before call / verification.
  */
 export async function ensureMicPermission(): Promise<boolean> {
-  const { status: existing } = await Audio.getPermissionsAsync();
+  const { status: existing } = await getRecordingPermissionsAsync();
   if (existing === "granted") return true;
   const proceed = await ask(
     "Microphone access",
     "Simple Talk needs your microphone for instant audio and video calls."
   );
   if (!proceed) return false;
-  const { status } = await Audio.requestPermissionsAsync();
+  const { status } = await requestRecordingPermissionsAsync();
   if (status === "granted") return true;
   offerSettings("Microphone required", "Allow the microphone in system settings to place a call.");
   return false;

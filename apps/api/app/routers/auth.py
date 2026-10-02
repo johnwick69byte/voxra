@@ -1,17 +1,22 @@
 from datetime import datetime, timedelta, timezone
+import re
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.rate_limit import check_rate_limit
-from app.core.security import require_user
+from app.core.security import create_access_token, require_user
 from app.models.schemas import (
+    CATEGORIES,
+    GENDERS,
+    LANGUAGES,
     AccountDeletionRequest,
     CompleteProfileRequest,
     SendOtpRequest,
     UpdateProfileRequest,
     VerifyOtpRequest,
 )
+from app.services import imagekit_service
 from app.services import auth_service
 from app.core.database import get_db
 
@@ -62,33 +67,61 @@ async def me(user: dict = Depends(require_user)):
     return {"success": True, "user": user, "creator_profile": profile, "wallet": wallet}
 
 
+@router.get("/check-username")
+async def check_username(username: str, user: dict = Depends(require_user)):
+    cleaned = (username or "").strip().lower()
+    if len(cleaned) < 3 or not re.fullmatch(r"[a-z0-9_-]+", cleaned):
+        return {"success": True, "available": False, "reason": "Only letters, numbers, _ and - allowed"}
+    db = get_db()
+    exists = await db.users.find_one({"username": cleaned, "user_id": {"$ne": user["user_id"]}})
+    return {"success": True, "available": not bool(exists)}
+
+
 @router.post("/complete-profile")
 async def complete_profile(body: CompleteProfileRequest, user: dict = Depends(require_user)):
     db = get_db()
+    picture = body.picture
+    if picture and picture.startswith("data:"):
+        picture = await imagekit_service.upload_base64_image(picture, folder="avatars")
+
     updates = {
         "name": body.name.strip(),
-        "picture": body.picture,
+        "picture": picture,
         "user_type": body.user_type.value,
         "profile_complete": True,
         "updated_at": datetime.now(timezone.utc),
     }
     if body.username:
-        username = body.username.strip().lower()
-        exists = await db.users.find_one({"username": username, "user_id": {"$ne": user["user_id"]}})
+        exists = await db.users.find_one({"username": body.username, "user_id": {"$ne": user["user_id"]}})
         if exists:
             raise HTTPException(409, "Username taken")
-        updates["username"] = username
+        updates["username"] = body.username
+    elif body.user_type.value == "creator":
+        raise HTTPException(400, "Username must be at least 3 characters")
 
     if not user.get("referral_code"):
         updates["referral_code"] = await auth_service.generate_referral_code()
 
     if body.user_type.value == "creator":
+        if body.gender not in GENDERS:
+            raise HTTPException(400, "Select a gender")
+        if body.category not in CATEGORIES:
+            raise HTTPException(400, "Select a category")
+        languages = body.languages or []
+        if not languages or any(lang not in LANGUAGES for lang in languages):
+            raise HTTPException(400, "Select at least one language")
+        creator_fields = {
+            "bio": (body.bio or "").strip(),
+            "gender": body.gender,
+            "category": body.category,
+            "languages": languages,
+            "famous_profile_link": body.famous_profile_link or "",
+        }
         existing = await db.creator_profiles.find_one({"user_id": user["user_id"]})
         if not existing:
             await db.creator_profiles.insert_one(
                 {
                     "user_id": user["user_id"],
-                    "bio": body.bio or "",
                     "images": [],
                     "audio_rate_per_minute": None,
                     "video_rate_per_minute": None,
@@ -97,22 +130,30 @@ async def complete_profile(body: CompleteProfileRequest, user: dict = Depends(re
                     "is_approved": False,
                     "verification_status": "pending_pricing",
                     "created_at": datetime.now(timezone.utc),
+                    **creator_fields,
                 }
             )
         else:
             await db.creator_profiles.update_one(
                 {"user_id": user["user_id"]},
-                {"$set": {"bio": body.bio or ""}},
+                {"$set": creator_fields},
             )
 
     if body.referral_code:
-        referrer = await db.users.find_one({"referral_code": body.referral_code.upper()})
-        if referrer and referrer["user_id"] != user["user_id"]:
-            updates["referred_by"] = referrer["user_id"]
+        code = body.referral_code.strip().upper()
+        if user.get("referred_by"):
+            raise HTTPException(400, "You have already used a referral code")
+        referrer = await db.users.find_one({"referral_code": code})
+        if not referrer:
+            raise HTTPException(400, "Invalid referral code")
+        if referrer["user_id"] == user["user_id"]:
+            raise HTTPException(400, "You cannot use your own referral code")
+        updates["referred_by"] = referrer["user_id"]
 
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
-    return {"success": True, "user": updated}
+    token = create_access_token(updated["user_id"], updated["user_type"])
+    return {"success": True, "user": updated, "token": token}
 
 
 @router.post("/update-profile")

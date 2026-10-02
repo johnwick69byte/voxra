@@ -69,6 +69,34 @@ class VerifyOtpRequest(BaseModel):
         return code
 
 
+LANGUAGES = [
+    "Hindi",
+    "English",
+    "Tamil",
+    "Telugu",
+    "Kannada",
+    "Malayalam",
+    "Bengali",
+    "Marathi",
+]
+CATEGORIES = [
+    "Fashion & Style",
+    "Fitness & Health",
+    "Beauty & Makeup",
+    "Travel & Lifestyle",
+    "Food & Cooking",
+    "Tech & Gaming",
+    "Entertainment",
+    "Music & Dance",
+    "Comedy & Memes",
+    "Art & Photography",
+    "Business & Finance",
+    "Education",
+    "Relationship & Dating",
+]
+GENDERS = ["Female", "Male", "Other"]
+
+
 class CompleteProfileRequest(BaseModel):
     name: str
     username: Optional[str] = None
@@ -76,6 +104,10 @@ class CompleteProfileRequest(BaseModel):
     user_type: UserType = UserType.USER
     referral_code: Optional[str] = None
     bio: Optional[str] = None
+    gender: Optional[str] = None
+    category: Optional[str] = None
+    languages: Optional[List[str]] = None
+    famous_profile_link: Optional[str] = None
 
     @field_validator("name")
     @classmethod
@@ -84,6 +116,43 @@ class CompleteProfileRequest(BaseModel):
         if len(name) < 2:
             raise ValueError("Name must be at least 2 characters")
         return name
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not str(v).strip():
+            return None
+        username = str(v).strip().lower()
+        if len(username) < 3:
+            raise ValueError("Username must be at least 3 characters")
+        if not re.fullmatch(r"[a-z0-9_-]+", username):
+            raise ValueError("Only letters, numbers, _ and - allowed")
+        return username
+
+    @field_validator("famous_profile_link")
+    @classmethod
+    def validate_social(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not str(v).strip():
+            return None
+        link = str(v).strip()
+        if not re.match(r"^https?://", link, re.I) or not re.search(
+            r"(instagram\.com|youtu\.be|youtube\.com)", link, re.I
+        ):
+            raise ValueError("Enter a valid Instagram or YouTube link")
+        return link
+
+
+class ImageUploadRequest(BaseModel):
+    image_base64: str
+
+
+class ImageDeleteRequest(BaseModel):
+    image_url: str
+
+
+class VerificationSubmitRequest(BaseModel):
+    verification_id: str
+    image_base64: str
 
 
 class ApplyReferralRequest(BaseModel):

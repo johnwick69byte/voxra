@@ -6,18 +6,16 @@
     "orientation": "portrait",
     "scheme": "simpletalk",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0B1F1A"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.simple_talk.app",
       "infoPlist": {
-        "UIBackgroundModes": ["audio", "voip", "remote-notification"],
+        "UIBackgroundModes": [
+          "audio",
+          "voip",
+          "remote-notification"
+        ],
         "NSCameraUsageDescription": "Simple Talk needs camera access for video calls.",
         "NSMicrophoneUsageDescription": "Simple Talk needs microphone access for audio and video calls.",
         "NSUserNotificationsUsageDescription": "Simple Talk sends call and account notifications."
@@ -51,7 +49,7 @@
       "expo-router",
       "expo-font",
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "Allow Simple Talk to access your microphone for calls."
         }
@@ -63,7 +61,18 @@
         }
       ],
       "@react-native-firebase/app",
-      "@react-native-firebase/messaging"
+      "@react-native-firebase/messaging",
+      "expo-image",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0B1F1A",
+          "image": "./assets/splash.png",
+          "resizeMode": "contain"
+        }
+      ],
+      "expo-status-bar",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

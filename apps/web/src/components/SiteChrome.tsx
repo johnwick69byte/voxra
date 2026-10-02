@@ -15,6 +15,7 @@ export function SiteChrome({ children }: { children: ReactNode }) {
           <a href="/#services">Services</a>
           <NavLink to="/privacy">Privacy</NavLink>
           <NavLink to="/terms">Terms</NavLink>
+          <NavLink to="/delete-account">Delete account</NavLink>
         </nav>
       </header>
       {children}
@@ -26,6 +27,7 @@ export function SiteChrome({ children }: { children: ReactNode }) {
         <div className="footer-links">
           <Link to="/privacy">Privacy policy</Link>
           <Link to="/terms">Terms and conditions</Link>
+          <Link to="/delete-account">Delete account</Link>
         </div>
       </footer>
     </>

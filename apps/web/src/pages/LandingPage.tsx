@@ -325,6 +325,7 @@ export default function LandingPage() {
         <p className="owner-links">
           <Link to="/privacy">Privacy policy</Link>
           <Link to="/terms">Terms and conditions</Link>
+          <Link to="/delete-account">Delete account</Link>
         </p>
       </section>
     </main>

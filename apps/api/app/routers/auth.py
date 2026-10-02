@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.rate_limit import check_rate_limit
 from app.core.security import require_user
 from app.models.schemas import (
+    AccountDeletionRequest,
     CompleteProfileRequest,
     SendOtpRequest,
     UpdateProfileRequest,
@@ -10,7 +14,6 @@ from app.models.schemas import (
 )
 from app.services import auth_service
 from app.core.database import get_db
-from datetime import datetime, timezone
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -143,6 +146,69 @@ async def update_profile(body: UpdateProfileRequest, user: dict = Depends(requir
     if updated and updated.get("user_type") == "creator":
         profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return {"success": True, "user": updated, "creator_profile": profile}
+
+
+_DELETION_ACK = (
+    "If the provided information matches an account, a deletion request will be processed within 7 days."
+)
+
+
+@router.post("/request-account-deletion")
+async def request_account_deletion(body: AccountDeletionRequest, request: Request):
+    """Public Play-style deletion request. Does not reveal whether an account exists."""
+    ip = request.client.host if request.client else "unknown"
+    allowed = await check_rate_limit(f"delete-req:{ip}", limit=8, window_seconds=3600)
+    if not allowed:
+        raise HTTPException(429, "Too many deletion requests. Try again later.")
+
+    ack = {"success": True, "message": _DELETION_ACK}
+    db = get_db()
+    phone = body.phone_number
+    user = await db.users.find_one(
+        {"phone": {"$in": [f"+91{phone}", phone, f"91{phone}"]}},
+        {"_id": 0},
+    )
+    if not user or user.get("deleted"):
+        return ack
+    if (user.get("name") or "").strip().lower() != body.name.strip().lower():
+        return ack
+
+    if user.get("user_type") == "creator":
+        profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+        if profile:
+            if body.audio_rate_per_minute is not None:
+                stored = float(profile.get("audio_rate_per_minute") or 0)
+                if abs(stored - float(body.audio_rate_per_minute)) > 0.01:
+                    return ack
+            if body.video_rate_per_minute is not None:
+                stored = float(profile.get("video_rate_per_minute") or 0)
+                if abs(stored - float(body.video_rate_per_minute)) > 0.01:
+                    return ack
+
+    request_id = f"del_req_{uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    await db.account_deletion_requests.insert_one(
+        {
+            "request_id": request_id,
+            "user_id": user["user_id"],
+            "phone_number": phone,
+            "name": body.name.strip(),
+            "audio_rate_per_minute": body.audio_rate_per_minute,
+            "video_rate_per_minute": body.video_rate_per_minute,
+            "social_profile_link": (body.social_profile_link or "").strip(),
+            "status": "PENDING",
+            "created_at": now,
+            "scheduled_deletion_date": now + timedelta(days=7),
+        }
+    )
+    return {
+        "success": True,
+        "message": (
+            "Account deletion request submitted successfully. We will verify your details "
+            "and process the deletion within 7 days if all information matches."
+        ),
+        "request_id": request_id,
+    }
 
 
 @router.post("/delete-account")

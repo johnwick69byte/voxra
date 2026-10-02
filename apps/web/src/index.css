@@ -179,12 +179,58 @@ th:last-child { background: rgba(45, 212, 191, 0.1); color: var(--teal); }
 .owner p { color: var(--muted); margin-top: 10px; }
 .owner-links { display: flex; gap: 18px; }
 
-.legal { max-width: 760px; margin: 0 auto; padding: 56px 6vw 80px; }
+.legal { max-width: 780px; margin: 0 auto; padding: 56px 6vw 80px; }
 .legal h1 { font-size: clamp(40px, 5vw, 56px); }
-.legal h2 { font-size: 28px; margin-top: 34px; }
+.legal h2 { font-size: 28px; margin-top: 36px; }
+.legal h3 { font-size: 18px; margin-top: 18px; font-family: Manrope, "Segoe UI", sans-serif; letter-spacing: 0; }
 .legal p, .legal li { color: var(--muted); margin-top: 10px; }
 .legal ul { padding-left: 18px; }
+.legal strong { color: var(--text); font-weight: 700; }
 .meta { color: var(--dim); font-size: 14px; }
+.notice {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(232, 168, 124, 0.35);
+  background: rgba(232, 168, 124, 0.08);
+  color: var(--text);
+}
+.notice h2 { margin-top: 0; font-size: 26px; }
+.compliance {
+  margin-top: 22px;
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(16, 26, 24, 0.72);
+}
+.compliance span {
+  display: inline-block;
+  min-width: 120px;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.delete-form { display: grid; gap: 16px; margin-top: 28px; }
+.delete-form label { display: grid; gap: 8px; font-weight: 700; }
+.delete-form em { color: var(--copper); font-style: normal; }
+.delete-form input {
+  height: 48px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #0c1614;
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+}
+.delete-form small { color: var(--dim); font-weight: 500; }
+.form-error { color: #f0b4a8; }
+.form-ok { color: var(--teal); }
+button.btn { border: 0; cursor: pointer; font: inherit; }
+button.btn:disabled { opacity: 0.6; cursor: wait; }
 
 .footer {
   border-top: 1px solid var(--line);

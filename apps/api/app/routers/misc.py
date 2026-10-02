@@ -82,8 +82,8 @@ async def support_message(body: SupportMessageRequest, user: dict = Depends(requ
 async def privacy():
     return {
         "title": "Privacy Policy",
-        "updated": "2026-08-02",
-        "body": "Simple Talk collects account, device, and call metadata needed to operate instant audio/video sessions and payments. We do not sell personal data.",
+        "updated": "2026-10-02",
+        "body": "Simple Talk, owned by Gandapodi V Saathvik, is only a technology bridge between a fan and an independent creator. We collect account, device, call, and payment metadata to operate instant audio and video sessions. We do not sell personal data and we do not store call recordings. This policy can change; the latest version applies.",
     }
 
 
@@ -91,6 +91,6 @@ async def privacy():
 async def terms():
     return {
         "title": "Terms of Service",
-        "updated": "2026-08-02",
-        "body": "By using Simple Talk you agree to respectful conduct. Abuse or nudity may result in bans. Wallet recharges are prepaid credits for instant calls.",
+        "updated": "2026-10-02",
+        "body": "Simple Talk is only a bridge between the user and the creator. We are not a party to the call and we are not responsible for what either person says or does. We will suspend or remove accounts, and may withhold earnings where the law allows, for misuse or illegal use. These terms can change; continued use is acceptance. Wallet recharges are prepaid credits for instant calls.",
     }

@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     jwt_expire_days: int = 30
     admin_jwt_secret: str = "dev-admin-secret-change-me"
 
-    cors_origins: str = "http://localhost:5173,http://localhost:8081"
+    cors_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost:8081"
     socketio_cors_origins: str = "*"
 
     environment: str = "development"

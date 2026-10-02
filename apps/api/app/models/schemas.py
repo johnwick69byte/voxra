@@ -126,6 +126,22 @@ class GiftRequest(BaseModel):
     amount: float
 
 
+class AccountDeletionRequest(BaseModel):
+    phone_number: str
+    name: str
+    audio_rate_per_minute: Optional[float] = None
+    video_rate_per_minute: Optional[float] = None
+    social_profile_link: Optional[str] = None
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, v: str) -> str:
+        digits = re.sub(r"\D", "", v or "")
+        if len(digits) != 10:
+            raise ValueError("Phone must be a 10-digit mobile number")
+        return digits
+
+
 class SupportMessageRequest(BaseModel):
     subject: str
     message: str

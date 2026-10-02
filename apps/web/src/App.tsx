@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { SiteChrome } from "./components/SiteChrome";
 import LandingPage from "./pages/LandingPage";
+import DeleteAccountPage from "./pages/DeleteAccountPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
 
@@ -11,6 +12,7 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
+        <Route path="/delete-account" element={<DeleteAccountPage />} />
       </Routes>
     </SiteChrome>
   );

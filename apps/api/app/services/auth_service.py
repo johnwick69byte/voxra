@@ -272,7 +272,6 @@ async def verify_otp(
             "user_id": user_id,
             "phone": full,
             "name": None,
-            "username": None,
             "picture": None,
             "user_type": utype,
             "profile_complete": False,

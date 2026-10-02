@@ -32,6 +32,7 @@ def get_db() -> AsyncIOMotorDatabase:
 async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.users.create_index("user_id", unique=True)
     await db.users.create_index("phone", unique=True, sparse=True)
+    await db.users.update_many({"username": None}, {"$unset": {"username": ""}})
     await db.users.create_index("username", unique=True, sparse=True)
     await db.creator_profiles.create_index("user_id", unique=True)
     await db.wallets.create_index("user_id", unique=True)

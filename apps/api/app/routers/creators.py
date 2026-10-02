@@ -219,26 +219,33 @@ async def creator_status(creator_id: str, user: dict = Depends(require_user)):
 @router.post("/profile/pricing-setup")
 async def pricing_setup(body: PricingSetupRequest, user: dict = Depends(require_creator)):
     settings = get_settings()
-    audio = max(float(body.audio_rate_per_minute), settings.min_audio_rate)
-    video = max(float(body.video_rate_per_minute), settings.min_video_rate)
+    audio = float(body.audio_rate_per_minute)
+    video = float(body.video_rate_per_minute)
+    if audio < settings.min_audio_rate or video < settings.min_video_rate:
+        raise HTTPException(
+            400,
+            f"Minimum audio ₹{settings.min_audio_rate:.0f}/min and video ₹{settings.min_video_rate:.0f}/min",
+        )
     db = get_db()
+    profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    already_approved = bool(profile and profile.get("is_approved") and profile.get("verification_selfie_url"))
+    updates = {
+        "audio_rate_per_minute": audio,
+        "video_rate_per_minute": video,
+        "instant_call_enabled": body.instant_call_enabled,
+    }
+    if not already_approved:
+        updates["verification_status"] = "pending_photos"
     await db.creator_profiles.update_one(
         {"user_id": user["user_id"]},
-        {
-            "$set": {
-                "audio_rate_per_minute": audio,
-                "video_rate_per_minute": video,
-                "instant_call_enabled": body.instant_call_enabled,
-                "verification_status": "pending_photos",
-            }
-        },
+        {"$set": updates},
         upsert=True,
     )
     return {
         "success": True,
         "audio_rate_per_minute": audio,
         "video_rate_per_minute": video,
-        "next_step": "verification_selfie",
+        "next_step": "home" if already_approved else "verification_selfie",
     }
 
 

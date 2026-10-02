@@ -5,12 +5,14 @@ export function PrimaryButton({
   label,
   onPress,
   loading,
+  disabled,
   variant = "primary",
   style,
 }: {
   label: string;
   onPress: () => void;
   loading?: boolean;
+  disabled?: boolean;
   variant?: "primary" | "ghost" | "danger";
   style?: ViewStyle;
 }) {
@@ -33,7 +35,7 @@ export function PrimaryButton({
         style,
       ]}
       onPress={onPress}
-      disabled={loading}
+      disabled={loading || disabled}
       activeOpacity={0.85}
     >
       {loading ? (

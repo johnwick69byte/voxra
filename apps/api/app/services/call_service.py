@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException
@@ -355,7 +355,15 @@ async def prepaid_start(*, call_id: str, user: dict) -> dict:
 
     await start_billing_loop(call_id)
     tokens = agora_service.build_rtc_token(call["channel_name"])
-    return {"success": True, "agora": tokens, "status": "LIVE"}
+    wallet_now = await wallet_service.get_wallet(call["caller_id"])
+    fresh = await db.call_records.find_one({"call_id": call_id}, {"_id": 0, "total_amount": 1})
+    return {
+        "success": True,
+        "agora": tokens,
+        "status": "LIVE",
+        "balance": wallet_now.get("balance", 0),
+        "total_billed": float((fresh or {}).get("total_amount") or 0),
+    }
 
 
 async def start_billing_loop(call_id: str) -> None:
@@ -384,20 +392,39 @@ async def start_billing_loop(call_id: str) -> None:
 
 
 async def bill_next_minute(call_id: str) -> bool:
+    """Bill exactly one more minute. A second caller within 55s does not debit again."""
     db = get_db()
     call = await db.call_records.find_one({"call_id": call_id}, {"_id": 0})
     if not call or call["status"] != "LIVE":
         return False
 
+    now = datetime.now(timezone.utc)
+    last = call.get("last_billing_time") or call.get("live_at")
+    if last is not None:
+        if getattr(last, "tzinfo", None) is None:
+            last = last.replace(tzinfo=timezone.utc)
+        if (now - last).total_seconds() < 55:
+            return True
+
     minute_to_bill = int(call.get("last_billed_minute", 0)) + 1
     rate = float(call["rate_per_minute"])
+    cutoff = now - timedelta(seconds=55)
 
     atomic = await db.call_records.find_one_and_update(
-        {"call_id": call_id, "status": "LIVE", "last_billed_minute": {"$lt": minute_to_bill}},
+        {
+            "call_id": call_id,
+            "status": "LIVE",
+            "last_billed_minute": {"$lt": minute_to_bill},
+            "$or": [
+                {"last_billing_time": {"$lte": cutoff}},
+                {"last_billing_time": None},
+                {"last_billing_time": {"$exists": False}},
+            ],
+        },
         {
             "$set": {
                 "last_billed_minute": minute_to_bill,
-                "last_billing_time": datetime.now(timezone.utc),
+                "last_billing_time": now,
             }
         },
         return_document=True,
@@ -462,13 +489,12 @@ async def bill_minute_client(*, call_id: str, user: dict, current_minute: int) -
         raise HTTPException(403, "Only caller can trigger billing")
     if call["status"] != "LIVE":
         return {"success": True, "message": "Call not live"}
-    # Align server last_billed with client elapsed minutes
-    target = current_minute + 1
-    while call.get("last_billed_minute", 0) < target:
-        ok = await bill_next_minute(call_id)
-        if not ok:
-            return {"success": False, "insufficient_balance": True}
-        call = await db.call_records.find_one({"call_id": call_id}, {"_id": 0})
+    # One attempt only. The 55s gate in bill_next_minute drops duplicate ticks
+    # from the server loop and from both phones.
+    _ = current_minute
+    ok = await bill_next_minute(call_id)
+    if not ok:
+        return {"success": False, "insufficient_balance": True}
     wallet = await wallet_service.get_wallet(user["user_id"])
     return {"success": True, "balance": wallet.get("balance", 0)}
 

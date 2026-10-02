@@ -14,7 +14,7 @@ import { useLocalSearchParams, useRouter, useNavigation } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
-import { callsAPI } from "../src/services/api";
+import { callsAPI, walletAPI } from "../src/services/api";
 import { socketService } from "../src/services/socket";
 import { useCallStore } from "../src/store/callStore";
 import { theme } from "../src/theme/tokens";
@@ -126,28 +126,26 @@ export default function CallScreen() {
     graceTimer.current = null;
   };
 
-  const startTimers = () => {
+  const startTimers = (bill: boolean) => {
     if (timer.current) return;
     startRef.current = Date.now();
     liveRef.current = true;
     setIsLive(true);
     timer.current = setInterval(() => setSeconds((s) => s + 1), 1000);
+    if (!bill) return;
     billTimer.current = setInterval(async () => {
       try {
         const mins = Math.floor((Date.now() - startRef.current) / 60000);
         await callsAPI.billMinute(callId, Math.max(1, mins));
       } catch {
-        /* server loop authoritative */
+        /* server loop is the clock; this tick is only a backup */
       }
     }, 60000);
   };
 
   const joinMedia = async (appId: string, token: string, channel: string) => {
     const ok = await ensureCallPermissions(callType === "VIDEO");
-    if (!ok) {
-      Toast.show({ type: "error", text1: "Microphone/camera permission required" });
-      return;
-    }
+    if (!ok) return false;
     const engine = await createAndJoinEngine({
       appId: appId || process.env.EXPO_PUBLIC_AGORA_APP_ID || "",
       token,
@@ -184,6 +182,7 @@ export default function CallScreen() {
       setMediaReady(true);
     }
     await startCallForegroundService({ callId, peerName, callType });
+    return true;
   };
 
   const scheduleDisconnectGrace = (reason: string) => {
@@ -330,21 +329,62 @@ export default function CallScreen() {
   }, [role, leave]);
 
   useEffect(() => {
+    if (role !== "caller") return;
+    walletAPI
+      .balance()
+      .then((r) => {
+        const next = Number(r.data?.balance);
+        if (Number.isNaN(next)) return;
+        if (useCallStore.getState().totalBilled > 0) return;
+        setBilling(next, useCallStore.getState().totalBilled);
+      })
+      .catch(() => {});
+  }, [role, setBilling]);
+
+  useEffect(() => {
+    if (role !== "receiver") return;
+    const loadGifts = () => {
+      callsAPI
+        .active()
+        .then((r) => {
+          const call = r.data?.call;
+          if (!call || call.call_id !== callId) return;
+          setGiftsTotal(Number(call.gifts_gross || 0));
+          setEarningsSession(Number(call.gifts_earnings || 0));
+        })
+        .catch(() => {});
+    };
+    loadGifts();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") loadGifts();
+    });
+    return () => sub.remove();
+  }, [role, callId]);
+
+  useEffect(() => {
     setActiveCall(callId);
     socketService.joinCall(callId);
 
     const onAccepted = async (payload?: any) => {
       setStatus("Connecting…");
       await stopRingtone();
+      const agora = payload?.agora || {};
       try {
-        const res = await callsAPI.prepaidStart(callId);
-        const agora = res.data?.agora || payload?.agora || {};
-        startTimers();
-        await joinMedia(
+        const joined = await joinMedia(
           agora.app_id || initialAppId,
           agora.token || initialToken,
           agora.channel_name || channelName
         );
+        if (!joined) {
+          await leave({ review: false });
+          return;
+        }
+        if (role === "caller") {
+          const res = await callsAPI.prepaidStart(callId);
+          const billed = res.data?.balance;
+          if (typeof billed === "number") setBilling(billed, res.data?.total_billed ?? 0);
+        }
+        startTimers(role === "caller");
       } catch (e: any) {
         Toast.show({
           type: "error",

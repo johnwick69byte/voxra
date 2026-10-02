@@ -49,20 +49,19 @@ export default function CreatorProfile() {
     return imgs;
   }, [creator]);
 
-  const unavailable = creator && ["DND", "BUSY", "OFFLINE"].includes(creator.status);
+  const unavailable = creator && ["DND", "BUSY"].includes(creator.status);
+  const offline = creator?.status === "OFFLINE";
 
   const startCall = async (call_type: "AUDIO" | "VIDEO") => {
+    if (unavailable) return;
     const agreed = await ensureCallDisclaimer();
     if (!agreed) return;
     const ok = await ensureCallPermissions(call_type === "VIDEO");
-    if (!ok) {
-      Toast.show({ type: "error", text1: "Permissions required for calls" });
-      return;
-    }
+    if (!ok) return;
     setLoading(true);
     try {
       const status = await creatorsAPI.status(String(id));
-      if (!status.data.available || ["DND", "BUSY", "OFFLINE"].includes(status.data.status)) {
+      if (!status.data.available || ["DND", "BUSY"].includes(status.data.status)) {
         Alert.alert("Unavailable", status.data.reason || "Creator is not available");
         return;
       }
@@ -169,24 +168,24 @@ export default function CreatorProfile() {
       <View style={styles.sticky}>
         {unavailable ? (
           <AppText style={styles.unavail}>
-            {creator.status === "BUSY"
-              ? "Creator is on another call"
-              : creator.status === "DND"
-                ? "Do not disturb"
-                : "Creator is offline"}
+            {creator.status === "BUSY" ? "Creator is on another call" : "Do not disturb"}
           </AppText>
+        ) : offline ? (
+          <AppText style={styles.unavail}>Offline — they will get a call notification</AppText>
         ) : null}
         <View style={styles.actions}>
           <PrimaryButton
             label={`Audio · ₹${creator.audio_rate_per_minute}`}
             onPress={() => startCall("AUDIO")}
             loading={loading}
+            disabled={!!unavailable}
             style={{ flex: 1, opacity: unavailable ? 0.45 : 1 }}
           />
           <PrimaryButton
             label={`Video · ₹${creator.video_rate_per_minute}`}
             onPress={() => startCall("VIDEO")}
             loading={loading}
+            disabled={!!unavailable}
             style={{ flex: 1, opacity: unavailable ? 0.45 : 1 }}
           />
         </View>

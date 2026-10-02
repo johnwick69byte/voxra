@@ -46,6 +46,7 @@ export default function WalletScreen() {
   const [txFilter, setTxFilter] = useState<(typeof TX_FILTERS)[number]>("ALL");
   const [withdrawAmt, setWithdrawAmt] = useState("");
   const [upi, setUpi] = useState("");
+  const [accountName, setAccountName] = useState("");
   const scale = useSharedValue(1);
   const prevBalance = useRef(0);
 
@@ -162,11 +163,16 @@ export default function WalletScreen() {
       Toast.show({ type: "error", text1: "Enter a valid UPI ID" });
       return;
     }
+    if (accountName.trim().length < 2) {
+      Toast.show({ type: "error", text1: "Enter the account name" });
+      return;
+    }
     setLoading(true);
     try {
-      await walletAPI.withdraw(amount, upi.trim());
+      await walletAPI.withdraw(amount, upi.trim(), accountName.trim());
       Toast.show({ type: "success", text1: "Withdrawal requested" });
       setWithdrawAmt("");
+      setAccountName("");
       await load();
     } catch (e: any) {
       Toast.show({
@@ -217,6 +223,13 @@ export default function WalletScreen() {
             keyboardType="number-pad"
             value={withdrawAmt}
             onChangeText={setWithdrawAmt}
+          />
+          <TextInput
+            style={styles.wdInput}
+            placeholder="Account name"
+            placeholderTextColor="rgba(255,255,255,0.45)"
+            value={accountName}
+            onChangeText={setAccountName}
           />
           <TextInput
             style={styles.wdInput}

@@ -19,8 +19,15 @@ import { APP_NAME } from "../../src/theme/brand";
 
 const RESEND_COOLDOWN_S = 30;
 
+function nationalDigits(raw: string) {
+  let d = raw.replace(/\D/g, "");
+  if (d.startsWith("91") && d.length >= 12) d = d.slice(2);
+  else if (d.length > 10) d = d.slice(-10);
+  return d.slice(0, 10);
+}
+
 function formatPhone(raw: string) {
-  const d = raw.replace(/\D/g, "").slice(0, 10);
+  const d = nationalDigits(raw);
   if (d.length <= 5) return d;
   return `${d.slice(0, 5)} ${d.slice(5)}`;
 }
@@ -37,7 +44,7 @@ export default function LoginScreen() {
   const [cooldown, setCooldown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const digits = phone.replace(/\D/g, "");
+  const digits = nationalDigits(phone);
   const otpDigits = otp.replace(/\D/g, "");
   const phoneOk = digits.length === 10 && "6789".includes(digits[0]);
   const otpOk = otpDigits.length === 6;
@@ -101,8 +108,7 @@ export default function LoginScreen() {
     try {
       const res = await authAPI.verifyOtp(digits, otpDigits, role);
       await setSession(res.data.token, res.data.user);
-      if (!res.data.user.profile_complete) router.replace("/(auth)/complete-profile");
-      else router.replace("/(tabs)/browse");
+      router.replace("/");
     } catch (e: any) {
       const status = e?.response?.status;
       Toast.show({
@@ -145,7 +151,7 @@ export default function LoginScreen() {
           keyboardType="phone-pad"
           placeholder="98765 43210"
           value={formatPhone(phone)}
-          onChangeText={(t) => setPhone(t.replace(/\D/g, "").slice(0, 10))}
+          onChangeText={(t) => setPhone(nationalDigits(t))}
           maxLength={11}
         />
         {sent && (
@@ -167,6 +173,7 @@ export default function LoginScreen() {
           label={sent ? "Verify & continue" : "Send OTP"}
           onPress={sent ? verify : send}
           loading={loading}
+          disabled={sent ? !otpOk : !phoneOk}
           style={{ marginTop: 20, opacity: sent ? (otpOk ? 1 : 0.5) : phoneOk ? 1 : 0.5 }}
         />
         {sent ? (

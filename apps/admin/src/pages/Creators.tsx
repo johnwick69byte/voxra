@@ -17,13 +17,20 @@ export default function Creators() {
       <div className="panel">
         <table>
           <thead>
-            <tr><th>Name</th><th>User</th><th>Audio</th><th>Video</th><th>Status</th><th></th></tr>
+            <tr><th>Selfie</th><th>Name</th><th>Phone</th><th>Audio</th><th>Video</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             {items.map((c) => (
               <tr key={c.user_id}>
+                <td>
+                  {c.verification_selfie_url ? (
+                    <a href={c.verification_selfie_url} target="_blank" rel="noreferrer">
+                      <img src={c.verification_selfie_url} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8 }} />
+                    </a>
+                  ) : "—"}
+                </td>
                 <td>{c.user?.name || "—"}</td>
-                <td>{c.user_id}</td>
+                <td>{c.user?.phone || "—"}</td>
                 <td>₹{c.audio_rate_per_minute}</td>
                 <td>₹{c.video_rate_per_minute}</td>
                 <td><span className="badge warn">{c.verification_status}</span></td>
@@ -33,7 +40,7 @@ export default function Creators() {
                 </td>
               </tr>
             ))}
-            {!items.length && <tr><td colSpan={6} style={{ color: "var(--muted)" }}>Queue empty</td></tr>}
+            {!items.length && <tr><td colSpan={7} style={{ color: "var(--muted)" }}>Queue empty</td></tr>}
           </tbody>
         </table>
       </div>

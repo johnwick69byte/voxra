@@ -6,7 +6,12 @@ import { theme } from "../src/theme/tokens";
 export default function NotificationsScreen() {
   const [items, setItems] = useState<any[]>([]);
   useEffect(() => {
-    appAPI.notifications().then((r) => setItems(r.data.notifications || []));
+    appAPI
+      .notifications()
+      .then((r) => setItems(r.data.notifications || []))
+      .finally(() => {
+        appAPI.markNotificationsRead().catch(() => {});
+      });
   }, []);
   return (
     <View style={styles.wrap}>

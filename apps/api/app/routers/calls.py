@@ -127,6 +127,15 @@ async def gift(call_id: str, body: GiftRequest, user: dict = Depends(require_use
         description="Gift received",
         metadata={"call_id": call_id},
     )
+    await db.call_records.update_one(
+        {"call_id": call_id},
+        {
+            "$inc": {
+                "gifts_gross": amount,
+                "gifts_earnings": commission["model_earnings"],
+            }
+        },
+    )
     from app.core.socket import emit_to_user
     payload = {
         "call_id": call_id,

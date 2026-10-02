@@ -86,13 +86,14 @@ export const walletAPI = {
     api.post("/wallet/recharge/initiate", { amount, package_id }),
   verifyPending: (order_id: string) =>
     api.post("/wallet/recharge/verify-pending", { order_id }),
-  withdraw: (amount: number, upi_id: string) =>
-    api.post("/wallet/withdraw", { amount, upi_id }),
+  withdraw: (amount: number, upi_id: string, account_name?: string) =>
+    api.post("/wallet/withdraw", { amount, upi_id, account_name }),
 };
 
 export const appAPI = {
   config: () => api.get("/app/config"),
   notifications: () => api.get("/notifications"),
+  markNotificationsRead: () => api.post("/notifications/read-all"),
   support: (subject: string, message: string) =>
     api.post("/support/message", { subject, message }),
 };

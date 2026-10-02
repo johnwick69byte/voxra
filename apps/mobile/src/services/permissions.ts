@@ -14,7 +14,9 @@ export async function ensureMicPermission(): Promise<boolean> {
   );
   if (!proceed) return false;
   const { status } = await Audio.requestPermissionsAsync();
-  return status === "granted";
+  if (status === "granted") return true;
+  offerSettings("Microphone required", "Allow the microphone in system settings to place a call.");
+  return false;
 }
 
 export async function ensureCameraPermission(): Promise<boolean> {
@@ -26,7 +28,9 @@ export async function ensureCameraPermission(): Promise<boolean> {
   );
   if (!proceed) return false;
   const { status } = await Camera.requestCameraPermissionsAsync();
-  return status === "granted";
+  if (status === "granted") return true;
+  offerSettings("Camera required", "Allow the camera in system settings to place a video call.");
+  return false;
 }
 
 export async function ensureNotificationPermission(): Promise<boolean> {
@@ -71,6 +75,13 @@ export async function ensureVerificationPermissions(): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+function offerSettings(title: string, message: string) {
+  Alert.alert(title, message, [
+    { text: "Cancel", style: "cancel" },
+    { text: "Settings", onPress: () => Linking.openSettings() },
+  ]);
 }
 
 function ask(title: string, message: string): Promise<boolean> {

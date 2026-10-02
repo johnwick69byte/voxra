@@ -16,6 +16,7 @@ import { AppText } from "../src/components/ui";
 import { cancelCallNotification } from "../src/services/IncomingCallService";
 import { playRingtone, stopRingtone } from "../src/services/ringtone";
 import { ensureCallDisclaimer } from "../src/services/callDisclaimer";
+import { ensureCallPermissions } from "../src/services/permissions";
 import { useSecureCallScreen } from "../src/hooks/useSecureCallScreen";
 import { theme } from "../src/theme/tokens";
 import { APP_NAME } from "../src/theme/brand";
@@ -77,6 +78,8 @@ export default function IncomingCallScreen() {
   const accept = async () => {
     const agreed = await ensureCallDisclaimer();
     if (!agreed) return;
+    const permitted = await ensureCallPermissions(String(callType).toUpperCase() === "VIDEO");
+    if (!permitted) return;
     setBusy(true);
     await stopRingtone();
     Vibration.cancel();

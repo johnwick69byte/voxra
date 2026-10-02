@@ -11,6 +11,30 @@ from app.services import call_service, presence_service, push_service, wallet_se
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+async def _notify_user(user_id: str, title: str, body: str, ntype: str) -> None:
+    db = get_db()
+    await db.notifications.insert_one(
+        {
+            "user_id": user_id,
+            "title": title,
+            "body": body,
+            "type": ntype,
+            "read": False,
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+    push = await db.push_tokens.find_one({"user_id": user_id}, {"_id": 0})
+    token = (push or {}).get("device_push_token")
+    if token:
+        await push_service.send_push(
+            token,
+            title=title,
+            body=body,
+            data={"type": ntype},
+            channel_id="app_notifications",
+        )
+
+
 async def _audit(admin_id: str, action: str, meta: dict | None = None):
     db = get_db()
     await db.admin_audit.insert_one(
@@ -287,15 +311,12 @@ async def approve_creator(user_id: str, admin: dict = Depends(require_admin)):
         {"$set": {"is_approved": True, "verification_status": "approved"}},
     )
     await _audit(admin["user_id"], "approve_creator", {"user_id": user_id})
-    # notify
-    push = await db.push_tokens.find_one({"user_id": user_id}, {"_id": 0})
-    if push:
-        await push_service.send_push(
-            push["device_push_token"],
-            title="You're approved!",
-            body="Your Simple Talk creator profile is live. Go online and take calls.",
-            data={"type": "profile_verified"},
-        )
+    await _notify_user(
+        user_id,
+        "You're approved!",
+        "Your Simple Talk creator profile is live. Go online and take calls.",
+        "profile_verified",
+    )
     return {"success": True}
 
 
@@ -307,6 +328,12 @@ async def reject_creator(user_id: str, admin: dict = Depends(require_admin)):
         {"$set": {"is_approved": False, "verification_status": "rejected"}},
     )
     await _audit(admin["user_id"], "reject_creator", {"user_id": user_id})
+    await _notify_user(
+        user_id,
+        "Verification needs a new selfie",
+        "Your creator verification was rejected. Open Simple Talk and retake a clear live selfie.",
+        "profile_rejected",
+    )
     return {"success": True}
 
 
@@ -328,11 +355,23 @@ async def pending_withdrawals(admin: dict = Depends(require_admin)):
 @router.post("/withdrawals/{request_id}/mark-paid")
 async def mark_paid(request_id: str, admin: dict = Depends(require_admin)):
     db = get_db()
+    req = await db.withdrawal_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(404, "Not found")
+    if req.get("status") != "PENDING":
+        return {"success": True, "message": "Already processed"}
     await db.withdrawal_requests.update_one(
-        {"request_id": request_id},
+        {"request_id": request_id, "status": "PENDING"},
         {"$set": {"status": "PAID", "paid_at": datetime.now(timezone.utc), "paid_by": admin["user_id"]}},
     )
     await _audit(admin["user_id"], "withdrawal_paid", {"request_id": request_id})
+    amount = req.get("amount")
+    await _notify_user(
+        req["user_id"],
+        "Withdrawal paid",
+        f"₹{amount} was sent to your UPI.",
+        "withdrawal_paid",
+    )
     return {"success": True}
 
 
@@ -345,8 +384,14 @@ async def reject_withdrawal(request_id: str, admin: dict = Depends(require_admin
     if req["status"] == "PENDING":
         await wallet_service.credit_earnings(req["user_id"], req["amount"])
         await db.withdrawal_requests.update_one(
-            {"request_id": request_id},
+            {"request_id": request_id, "status": "PENDING"},
             {"$set": {"status": "REJECTED"}},
+        )
+        await _notify_user(
+            req["user_id"],
+            "Withdrawal rejected",
+            f"₹{req.get('amount')} was returned to your earnings.",
+            "withdrawal_rejected",
         )
     await _audit(admin["user_id"], "withdrawal_reject", {"request_id": request_id})
     return {"success": True}

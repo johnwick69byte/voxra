@@ -14,13 +14,28 @@ export default function PricingSetup() {
   const [loading, setLoading] = useState(false);
 
   const save = async () => {
+    const audioRate = Number(audio);
+    const videoRate = Number(video);
+    if (!audio.trim() || !video.trim() || Number.isNaN(audioRate) || Number.isNaN(videoRate)) {
+      Toast.show({ type: "error", text1: "Enter both rates" });
+      return;
+    }
+    if (audioRate < 3 || videoRate < 7) {
+      Toast.show({ type: "error", text1: "Minimum ₹3 audio and ₹7 video" });
+      return;
+    }
     setLoading(true);
     try {
-      await creatorsAPI.pricingSetup({
-        audio_rate_per_minute: Number(audio),
-        video_rate_per_minute: Number(video),
+      const res = await creatorsAPI.pricingSetup({
+        audio_rate_per_minute: audioRate,
+        video_rate_per_minute: videoRate,
         instant_call_enabled: true,
       });
+      if (res.data?.next_step === "home") {
+        Toast.show({ type: "success", text1: "Rates updated" });
+        router.replace("/(tabs)/browse");
+        return;
+      }
       Toast.show({ type: "success", text1: "Rates saved", text2: "Next: live selfie" });
       router.replace("/verification-selfie");
     } catch (e: any) {

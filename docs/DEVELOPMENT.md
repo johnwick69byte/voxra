@@ -26,7 +26,7 @@ Bootstrap admin: open admin → **Bootstrap first admin** (or `POST /api/admin/b
 Dev OTP: `123456`
 
 ## Store / launch notes
-- Android package / iOS bundle: `com.simpletalk.app`
+- Android package / iOS bundle: `com.simple_talk.app`
 - Configure Firebase, Agora, Trustope, ImageKit in `apps/api/.env`
 - EAS: set projectId in `app.json`; add CallKit/ConnectionService native modules for production ringing UX
 - Load-test ring + bill paths before soft launch

@@ -32,6 +32,6 @@ cd apps/mobile && yarn && npx expo start
 
 ## Brand
 
-- Package (Android): `com.simpletalk.app`
-- Bundle (iOS): `com.simpletalk.app`
+- Package (Android): `com.simple_talk.app`
+- Bundle (iOS): `com.simple_talk.app`
 - Scheme: `simpletalk://`

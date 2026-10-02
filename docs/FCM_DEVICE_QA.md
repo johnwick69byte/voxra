@@ -10,7 +10,7 @@ Do **not** reuse the Firebase Admin service-account JSON as the mobile Android c
 | **`google-services.json`** | Mobile Android app | Client config (project_id, mobilesdk_app_id, api_key) | `apps/mobile/google-services.json` (EAS build) |
 | **`GoogleService-Info.plist`** | Mobile iOS app | Client config | `apps/mobile/` + Xcode capabilities |
 
-If you put the **admin** JSON into `google-services.json`, FCM registration and data-only delivery will fail. Regenerate the Android app config from Firebase Console → Project settings → Your apps → Android (`com.simpletalk.app`) → Download `google-services.json`.
+If you put the **admin** JSON into `google-services.json`, FCM registration and data-only delivery will fail. Regenerate the Android app config from Firebase Console → Project settings → Your apps → Android (`com.simple_talk.app`) → Download `google-services.json`.
 
 ## Credentials to place
 

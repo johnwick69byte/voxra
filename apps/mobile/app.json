@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.simpletalk.app",
+      "bundleIdentifier": "com.simple_talk.app",
       "infoPlist": {
         "UIBackgroundModes": ["audio", "voip", "remote-notification"],
         "NSCameraUsageDescription": "Simple Talk needs camera access for video calls.",
@@ -24,7 +24,7 @@
       }
     },
     "android": {
-      "package": "com.simpletalk.app",
+      "package": "com.simple_talk.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B1F1A"

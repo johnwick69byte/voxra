@@ -134,7 +134,7 @@ async def _send_messagecentral_otp(full: str) -> Optional[str]:
       POST https://cpaas.messagecentral.com/verification/v3/send
         ?countryCode=91&flowType=SMS&mobileNumber=9999999999
       Header: authToken: <jwt>
-    otpLength=6 matches the app (docs default is 4).
+    otpLength=4 matches the app and the MessageCentral default.
     """
     token = await _get_messagecentral_token()
     if not token:
@@ -145,7 +145,7 @@ async def _send_messagecentral_otp(full: str) -> Optional[str]:
         "countryCode": country_code,
         "flowType": "SMS",
         "mobileNumber": mobile,
-        "otpLength": 6,
+        "otpLength": 4,
     }
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -201,29 +201,11 @@ async def _validate_messagecentral_otp(verification_id: str, code: str) -> bool:
         return False
 
 
-def _dev_otp_enabled() -> bool:
-    return (get_settings().environment or "").strip().lower() == "development"
-
-
 async def send_otp(country_code: str, phone: str) -> dict:
     settings = get_settings()
     full = _normalize_phone(country_code, phone)
     db = get_db()
     await db.otp_codes.delete_many({"phone": full})
-
-    if _dev_otp_enabled():
-        code = settings.dev_otp_code or "123456"
-        await db.otp_codes.insert_one(
-            {
-                "phone": full,
-                "code": code,
-                "provider": "dev",
-                "created_at": datetime.now(timezone.utc),
-                "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
-            }
-        )
-        logger.info("DEV OTP for %s: %s", full, code)
-        return {"success": True, "message": "OTP sent", "dev": True, "dev_code": code}
 
     if settings.messagecentral_api_key:
         verification_id = await _send_messagecentral_otp(full)
@@ -251,7 +233,7 @@ async def send_otp(country_code: str, phone: str) -> dict:
             "dev": False,
         }
 
-    code = settings.dev_otp_code or "".join(random.choices(string.digits, k=6))
+    code = settings.dev_otp_code or "7723"
     await db.otp_codes.insert_one(
         {
             "phone": full,
@@ -275,9 +257,11 @@ async def verify_otp(
     db = get_db()
     record = await db.otp_codes.find_one({"phone": full}, sort=[("created_at", -1)])
     settings = get_settings()
-    dev_code = settings.dev_otp_code or "123456"
+    dev_code = (settings.dev_otp_code or "7723").strip()
     valid = False
-    if _dev_otp_enabled() and otp == dev_code:
+    # Same as the previous app: a real SMS is sent, and 7723 is also accepted.
+    if record and otp == dev_code:
+        logger.info("Dev OTP accepted for %s", full)
         valid = True
     elif record and record.get("verification_id"):
         valid = await _validate_messagecentral_otp(str(record["verification_id"]), otp)

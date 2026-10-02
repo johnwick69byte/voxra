@@ -75,6 +75,14 @@ export default function CreatorPhotos() {
         <ActivityIndicator color={theme.colors.brand} style={{ marginTop: 32 }} />
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+          <AppText variant="caption" color={theme.colors.textMuted} style={{ marginTop: 8 }}>
+            {images.length} of 6 · at least 1 required
+          </AppText>
+          {!images.length ? (
+            <AppText style={{ marginTop: 8, lineHeight: 22 }}>
+              Use a clear photo of you. Fans see these on your profile before they call.
+            </AppText>
+          ) : null}
           <View style={styles.grid}>
             {images.map((url) => (
               <View key={url} style={styles.tile}>

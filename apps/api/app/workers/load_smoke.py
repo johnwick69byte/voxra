@@ -31,7 +31,7 @@ async def run():
             s = await client.post(f"{BASE}/auth/otp/send", json={"phone": phone, "country_code": "+91"})
             v = await client.post(
                 f"{BASE}/auth/otp/verify",
-                json={"phone": phone, "country_code": "+91", "otp": "123456", "user_type": "user"},
+                json={"phone": phone, "country_code": "+91", "otp": "7723", "user_type": "user"},
             )
             return s.status_code, v.status_code, v.json().get("success")
 

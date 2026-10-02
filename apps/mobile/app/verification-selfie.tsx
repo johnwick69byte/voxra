@@ -87,31 +87,32 @@ export default function VerificationSelfie() {
 
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 16) }]}>
-      <Pressable onPress={() => router.replace("/creator-photos")}>
-        <AppText color={theme.colors.brandLight}>Back</AppText>
+      <Pressable onPress={() => router.replace("/creator-photos")} style={styles.back}>
+        <AppText color={theme.colors.text}>Back</AppText>
       </Pressable>
-      <AppText variant="caption" color={theme.colors.textMuted} style={{ marginTop: 8 }}>
-        4 of 4
+      <AppText variant="caption" color={theme.colors.accent} style={{ marginTop: 10 }}>
+        Selfie · 4 of 4
       </AppText>
-      <AppText variant="title" style={{ marginTop: 8 }}>
-        {preview ? "Confirm your photo" : "Verification selfie"}
+      <AppText variant="title" style={{ marginTop: 4 }}>
+        {preview ? "Check the gesture" : `Hold up ${fingers}`}
       </AppText>
-      <AppText variant="subtitle" style={{ marginTop: 6 }}>
-        {preview
-          ? `Make sure ${fingers} are clearly visible.`
-          : `Hold up ${fingers} and take a selfie. Face and fingers must both be in frame.`}
+      <AppText variant="subtitle" style={{ marginTop: 4, marginBottom: 12 }}>
+        Face and fingers both need to be in the frame. This photo is only for review.
       </AppText>
 
-      <View style={styles.badge}>
-        <AppText style={styles.badgeNum}>{gestureNumber || "–"}</AppText>
-        <AppText variant="caption">finger{gestureNumber === 1 ? "" : "s"} required</AppText>
+      <View style={styles.stage}>
+        {preview ? (
+          <Image source={{ uri: preview }} style={styles.preview} />
+        ) : (
+          <CameraView ref={camRef} style={styles.preview} facing="front" />
+        )}
+        <View style={styles.overlay} pointerEvents="none">
+          <AppText style={styles.overlayNum}>{gestureNumber || "–"}</AppText>
+          <AppText style={styles.overlayLabel}>
+            {gestureNumber === 1 ? "1 finger" : `${gestureNumber} fingers`}
+          </AppText>
+        </View>
       </View>
-
-      {preview ? (
-        <Image source={{ uri: preview }} style={styles.preview} />
-      ) : (
-        <CameraView ref={camRef} style={styles.preview} facing="front" />
-      )}
 
       <View style={styles.row}>
         {preview ? (
@@ -128,7 +129,7 @@ export default function VerificationSelfie() {
             <PrimaryButton label="Submit" onPress={submit} loading={submitting} style={{ flex: 1 }} />
           </>
         ) : (
-          <PrimaryButton label="Capture" onPress={capture} disabled={!gestureNumber} style={{ flex: 1 }} />
+          <PrimaryButton label="Take selfie" onPress={capture} disabled={!gestureNumber} style={{ flex: 1 }} />
         )}
       </View>
     </View>
@@ -138,19 +139,26 @@ export default function VerificationSelfie() {
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: theme.colors.background, paddingHorizontal: 20 },
   center: { flex: 1, backgroundColor: theme.colors.background, alignItems: "center", justifyContent: "center" },
-  badge: {
+  back: {
     alignSelf: "flex-start",
-    marginTop: 12,
-    marginBottom: 12,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 16,
-    backgroundColor: theme.colors.surface,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    borderRadius: 20,
   },
-  badgeNum: { fontFamily: theme.font.display, fontSize: 28, color: theme.colors.accent },
-  preview: { flex: 1, borderRadius: 20, overflow: "hidden", backgroundColor: "#000", minHeight: 280 },
+  stage: { flex: 1, borderRadius: 24, overflow: "hidden", backgroundColor: "#000", minHeight: 320 },
+  preview: { flex: 1 },
+  overlay: {
+    position: "absolute",
+    top: 16,
+    alignSelf: "center",
+    backgroundColor: "rgba(7,13,12,0.72)",
+    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  overlayNum: { fontFamily: theme.font.display, fontSize: 56, color: theme.colors.accent, lineHeight: 60 },
+  overlayLabel: { color: theme.colors.text, fontFamily: theme.font.bodySemi },
   row: { flexDirection: "row", gap: 12, marginTop: 16 },
 });

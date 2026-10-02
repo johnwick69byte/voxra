@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TextInput, StyleSheet } from "react-native";
+import { TextInput, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
 import { creatorsAPI } from "../src/services/api";
@@ -7,6 +7,49 @@ import { PrimaryButton } from "../src/components/PrimaryButton";
 import { OnboardingChrome } from "../src/components/OnboardingChrome";
 import { AppText } from "../src/components/ui";
 import { theme } from "../src/theme/tokens";
+
+function keep(raw: string) {
+  const n = Number(raw);
+  if (!raw.trim() || Number.isNaN(n)) return null;
+  return Math.round(n * 0.85);
+}
+
+function RateCard({
+  title,
+  hint,
+  value,
+  onChange,
+  keep: kept,
+}: {
+  title: string;
+  hint: string;
+  value: string;
+  onChange: (v: string) => void;
+  keep: number | null;
+}) {
+  return (
+    <View style={styles.card}>
+      <AppText variant="label">{title}</AppText>
+      <AppText variant="caption" color={theme.colors.textMuted}>
+        {hint}
+      </AppText>
+      <View style={styles.rateRow}>
+        <AppText style={styles.rupee}>₹</AppText>
+        <TextInput
+          style={styles.input}
+          keyboardType="decimal-pad"
+          value={value}
+          onChangeText={onChange}
+          placeholderTextColor={theme.colors.textMuted}
+        />
+        <AppText color={theme.colors.textMuted}>/ min</AppText>
+      </View>
+      <AppText variant="caption" color={theme.colors.accent}>
+        {kept == null ? "You keep about 85% after the platform fee." : `You keep about ₹${kept} each minute.`}
+      </AppText>
+    </View>
+  );
+}
 
 export default function PricingSetup() {
   const router = useRouter();
@@ -54,25 +97,19 @@ export default function PricingSetup() {
       subtitle="Instant audio and video. Fans pay this per minute."
       onBack={() => router.replace("/(auth)/complete-profile")}
     >
-      <AppText variant="label" style={styles.label}>
-        Audio ₹/min (min 3)
-      </AppText>
-      <TextInput
-        style={styles.input}
-        keyboardType="decimal-pad"
+      <RateCard
+        title="Audio"
+        hint="Minimum ₹3 / min"
         value={audio}
-        onChangeText={setAudio}
-        placeholderTextColor={theme.colors.textMuted}
+        onChange={setAudio}
+        keep={keep(audio)}
       />
-      <AppText variant="label" style={styles.label}>
-        Video ₹/min (min 7)
-      </AppText>
-      <TextInput
-        style={styles.input}
-        keyboardType="decimal-pad"
+      <RateCard
+        title="Video"
+        hint="Minimum ₹7 / min"
         value={video}
-        onChangeText={setVideo}
-        placeholderTextColor={theme.colors.textMuted}
+        onChange={setVideo}
+        keep={keep(video)}
       />
       {error ? (
         <AppText variant="caption" color={theme.colors.error} style={{ marginTop: 8 }}>
@@ -85,16 +122,20 @@ export default function PricingSetup() {
 }
 
 const styles = StyleSheet.create({
-  label: { marginTop: 16, marginBottom: 6 },
+  card: {
+    marginTop: 14,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: theme.colors.surface,
+    gap: 6,
+  },
+  rateRow: { flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 4 },
+  rupee: { fontFamily: theme.font.display, fontSize: 28, color: theme.colors.text },
   input: {
+    flex: 1,
     height: 52,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    backgroundColor: theme.colors.backgroundElevated,
-    fontSize: 16,
+    fontSize: 28,
     color: theme.colors.text,
-    fontFamily: theme.font.body,
+    fontFamily: theme.font.display,
   },
 });

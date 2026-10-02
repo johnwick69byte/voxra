@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import Toast from "react-native-toast-message";
@@ -150,21 +151,25 @@ export default function CompleteProfile() {
           : "A name is enough to start calling."
       }
       onBack={() => router.replace("/(auth)/login")}
+      footer={<PrimaryButton label={isCreator ? "Continue to rates" : "Start calling"} onPress={submit} loading={loading} />}
     >
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }}>
           <View style={styles.roleRow}>
-            {(["user", "creator"] as const).map((role) => (
-              <Pressable
-                key={role}
-                onPress={() => setUserType(role)}
-                style={[styles.roleChip, userType === role && styles.roleOn]}
-              >
-                <AppText style={{ color: userType === role ? theme.colors.onBrand : theme.colors.textSecondary }}>
-                  {role === "user" ? "Fan" : "Creator"}
-                </AppText>
-              </Pressable>
-            ))}
+            <Pressable onPress={() => setUserType("user")} style={[styles.roleCard, !isCreator && styles.roleOn]}>
+              <Ionicons name="call-outline" size={22} color={!isCreator ? theme.colors.onBrand : theme.colors.brandLight} />
+              <AppText style={[styles.roleTitle, !isCreator && styles.roleTitleOn]}>Fan</AppText>
+              <AppText variant="caption" style={{ color: !isCreator ? theme.colors.onBrand : theme.colors.textMuted }}>
+                Call creators instantly
+              </AppText>
+            </Pressable>
+            <Pressable onPress={() => setUserType("creator")} style={[styles.roleCard, isCreator && styles.roleOn]}>
+              <Ionicons name="sparkles-outline" size={22} color={isCreator ? theme.colors.onBrand : theme.colors.accent} />
+              <AppText style={[styles.roleTitle, isCreator && styles.roleTitleOn]}>Creator</AppText>
+              <AppText variant="caption" style={{ color: isCreator ? theme.colors.onBrand : theme.colors.textMuted }}>
+                Earn per minute
+              </AppText>
+            </Pressable>
           </View>
 
           <Pressable onPress={pickAvatar} style={styles.avatarWrap}>
@@ -268,7 +273,6 @@ export default function CompleteProfile() {
             placeholder="ABCD1234"
           />
           {errors.referral ? <FieldError text={errors.referral} /> : null}
-          <PrimaryButton label="Continue" onPress={submit} loading={loading} style={{ marginTop: 24 }} />
         </ScrollView>
       </KeyboardAvoidingView>
     </OnboardingChrome>
@@ -285,15 +289,20 @@ function FieldError({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  roleRow: { flexDirection: "row", gap: 10, marginTop: 12 },
-  roleChip: {
+  roleRow: { flexDirection: "row", gap: 10, marginTop: 16 },
+  roleCard: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: theme.radius.md,
+    padding: 14,
+    borderRadius: 16,
     backgroundColor: theme.colors.surface,
-    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: 4,
+    minHeight: 108,
   },
-  roleOn: { backgroundColor: theme.colors.brand },
+  roleOn: { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand },
+  roleTitle: { fontFamily: theme.font.bodyBold, fontSize: 16, marginTop: 6 },
+  roleTitleOn: { color: theme.colors.onBrand },
   avatarWrap: { alignSelf: "center", marginVertical: 16 },
   avatar: { width: 96, height: 96, borderRadius: 32, backgroundColor: theme.colors.surface },
   avatarEmpty: { backgroundColor: theme.colors.brand, alignItems: "center", justifyContent: "center" },

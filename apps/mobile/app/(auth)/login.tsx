@@ -5,15 +5,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  TextInput,
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
 import { authAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
-import { AppText, Input } from "../../src/components/ui";
+import { AppText } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
 import { APP_NAME } from "../../src/theme/brand";
 
@@ -39,14 +41,14 @@ export default function LoginScreen() {
   const [otp, setOtp] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [devCode, setDevCode] = useState<string | null>(null);
+  const [terms, setTerms] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const digits = nationalDigits(phone);
   const otpDigits = otp.replace(/\D/g, "");
   const phoneOk = digits.length === 10 && "6789".includes(digits[0]);
-  const otpOk = otpDigits.length === 6;
+  const otpOk = otpDigits.length === 4;
 
   useEffect(() => {
     return () => {
@@ -73,18 +75,20 @@ export default function LoginScreen() {
       Toast.show({ type: "error", text1: "Enter a valid 10-digit mobile" });
       return;
     }
+    if (!terms) {
+      Toast.show({ type: "error", text1: "Accept the terms to continue" });
+      return;
+    }
     if (cooldown > 0) return;
     setLoading(true);
     try {
       const res = await authAPI.sendOtp(digits);
       setSent(true);
       startCooldown();
-      const code = res.data?.dev ? res.data?.dev_code || null : null;
-      setDevCode(code);
       Toast.show({
         type: "success",
         text1: "OTP sent",
-        text2: code ? `Dev code: ${code}` : "Check your SMS",
+        text2: "Check your SMS. Test code 7723 also works.",
       });
     } catch (e: any) {
       const status = e?.response?.status;
@@ -100,7 +104,7 @@ export default function LoginScreen() {
 
   const verify = async () => {
     if (!otpOk) {
-      Toast.show({ type: "error", text1: "Enter the 6-digit OTP" });
+      Toast.show({ type: "error", text1: "Enter the 4-digit OTP" });
       return;
     }
     setLoading(true);
@@ -132,35 +136,70 @@ export default function LoginScreen() {
         </AppText>
       </LinearGradient>
       <Animated.View entering={FadeInDown.duration(420)} style={styles.sheet}>
-        <Input
-          label="Phone"
-          keyboardType="phone-pad"
-          placeholder="98765 43210"
-          value={formatPhone(phone)}
-          onChangeText={(t) => setPhone(nationalDigits(t))}
-          maxLength={11}
-        />
-        {sent && (
-          <Input
-            label="OTP"
-            keyboardType="number-pad"
-            placeholder="6-digit code"
-            value={otpDigits}
-            onChangeText={(t) => setOtp(t.replace(/\D/g, "").slice(0, 6))}
-            maxLength={6}
+        <AppText variant="label" style={{ marginBottom: 8 }}>
+          Phone number
+        </AppText>
+        <View style={styles.phoneRow}>
+          <AppText style={styles.cc}>+91</AppText>
+          <TextInput
+            style={styles.phoneInput}
+            keyboardType="phone-pad"
+            placeholder="98765 43210"
+            placeholderTextColor={theme.colors.textMuted}
+            value={formatPhone(phone)}
+            onChangeText={(t) => setPhone(nationalDigits(t))}
+            maxLength={11}
           />
-        )}
-        {devCode ? (
-          <AppText variant="caption" style={{ marginTop: 8 }}>
-            Dev code: {devCode}
+        </View>
+        {digits.length > 0 && digits.length < 10 ? (
+          <AppText variant="caption" color={theme.colors.textMuted} style={{ marginTop: 6 }}>
+            {10 - digits.length} more digits
           </AppText>
         ) : null}
+        {sent ? (
+          <>
+            <AppText variant="label" style={{ marginTop: 18, marginBottom: 8 }}>
+              4-digit code
+            </AppText>
+            <TextInput
+              style={styles.otpInput}
+              keyboardType="number-pad"
+              placeholder="7723"
+              placeholderTextColor={theme.colors.textMuted}
+              value={otpDigits}
+              onChangeText={(t) => setOtp(t.replace(/\D/g, "").slice(0, 4))}
+              maxLength={4}
+              autoFocus
+            />
+            <AppText variant="caption" style={{ marginTop: 8, lineHeight: 18 }}>
+              Check the SMS. The test code 7723 is also accepted.
+            </AppText>
+          </>
+        ) : (
+          <Pressable style={styles.termsRow} onPress={() => setTerms((v) => !v)}>
+            <Ionicons
+              name={terms ? "checkbox" : "square-outline"}
+              size={22}
+              color={terms ? theme.colors.brandLight : theme.colors.textMuted}
+            />
+            <AppText variant="caption" style={{ flex: 1, lineHeight: 18 }}>
+              I agree to the{" "}
+              <AppText variant="caption" color={theme.colors.brandLight} onPress={() => router.push("/terms")}>
+                Terms
+              </AppText>
+              {" "}and{" "}
+              <AppText variant="caption" color={theme.colors.brandLight} onPress={() => router.push("/privacy")}>
+                Privacy Policy
+              </AppText>
+            </AppText>
+          </Pressable>
+        )}
         <PrimaryButton
           label={sent ? "Verify & continue" : "Send OTP"}
           onPress={sent ? verify : send}
           loading={loading}
-          disabled={sent ? !otpOk : !phoneOk}
-          style={{ marginTop: 20, opacity: sent ? (otpOk ? 1 : 0.5) : phoneOk ? 1 : 0.5 }}
+          disabled={sent ? !otpOk : !phoneOk || !terms}
+          style={{ marginTop: 20, opacity: sent ? (otpOk ? 1 : 0.5) : phoneOk && terms ? 1 : 0.5 }}
         />
         {sent ? (
           <Pressable
@@ -207,4 +246,52 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     padding: 24,
   },
+  phoneRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.colors.backgroundElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 56,
+  },
+  cc: { fontFamily: theme.font.bodyBold, marginRight: 10, color: theme.colors.brandLight },
+  phoneInput: { flex: 1, color: theme.colors.text, fontSize: 18, fontFamily: theme.font.body },
+  otpInput: {
+    height: 56,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.backgroundElevated,
+    color: theme.colors.text,
+    fontSize: 28,
+    letterSpacing: 12,
+    textAlign: "center",
+    fontFamily: theme.font.bodyBold,
+  },
+  termsRow: { flexDirection: "row", gap: 10, alignItems: "flex-start", marginTop: 18 },
+  otpCapture: { ...StyleSheet.absoluteFill, color: "transparent" },
+  otpRow: { flexDirection: "row", gap: 8 },
+  otpCell: {
+    flex: 1,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: theme.colors.backgroundElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  otpCellOn: { borderColor: theme.colors.brandLight },
+  otpDigit: { fontFamily: theme.font.bodyBold, fontSize: 22 },
+  devBox: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+  },
+  devCode: { fontFamily: theme.font.display, fontSize: 32, letterSpacing: 6, marginTop: 4 },
 });

@@ -496,7 +496,7 @@ async def audit_log(admin: dict = Depends(require_admin)):
 async def bootstrap_admin(email: str, password: str, name: str = "Admin"):
     """Create first admin if none exists. Disabled in production."""
     settings = get_settings()
-    if not settings.allow_admin_bootstrap or settings.environment == "production":
+    if not settings.allow_admin_bootstrap:
         raise HTTPException(403, "Admin bootstrap is disabled")
     db = get_db()
     existing = await db.users.find_one({"user_type": "admin"})

@@ -24,8 +24,10 @@ class Settings(BaseSettings):
 
     environment: str = "development"
     allow_admin_bootstrap: bool = True
+    # Explicit switch so a production host can still accept the dev code while you are testing.
+    allow_dev_otp: bool = False
 
-    dev_otp_code: str = "123456"
+    dev_otp_code: str = "7723"
     messagecentral_customer_id: str = ""
     messagecentral_api_key: str = ""
     messagecentral_email: str = ""

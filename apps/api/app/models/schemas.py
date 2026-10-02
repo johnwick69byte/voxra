@@ -64,8 +64,8 @@ class VerifyOtpRequest(BaseModel):
     @classmethod
     def validate_otp(cls, v: str) -> str:
         code = re.sub(r"\D", "", v or "")
-        if len(code) != 6:
-            raise ValueError("OTP must be 6 digits")
+        if len(code) != 4:
+            raise ValueError("OTP must be 4 digits")
         return code
 
 

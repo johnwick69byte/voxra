@@ -21,6 +21,7 @@ import { registerDevicePushToken } from "../src/services/pushRegistration";
 import { ensureNotificationPermission } from "../src/services/permissions";
 import { setupCallKeep } from "../src/services/CallKeepService";
 import { callsAPI } from "../src/services/api";
+import { useNotificationsStore } from "../src/store/notificationsStore";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -123,10 +124,25 @@ export default function RootLayout() {
       setIncoming(null);
     };
 
+    const onNewNotification = (payload: any) => {
+      if (!payload || payload.type === "incoming_call") return;
+      useNotificationsStore.getState().setUnread(
+        useNotificationsStore.getState().unread + 1
+      );
+      Toast.show({
+        type: payload.type?.includes("reject") ? "error" : "info",
+        text1: payload.title || "New update",
+        text2: payload.message,
+        visibilityTime: 4000,
+      });
+    };
+
     socketService.on("incoming_call", onIncoming);
     socketService.on("cancel_call_notification", onCancelNotif);
     socketService.on("call_cancelled", onCancelNotif);
     socketService.on("call_missed", onCancelNotif);
+    socketService.on("new_notification", onNewNotification);
+    useNotificationsStore.getState().refresh();
 
     (async () => {
       const pending = await consumePendingCall();
@@ -152,6 +168,7 @@ export default function RootLayout() {
       socketService.off("cancel_call_notification", onCancelNotif);
       socketService.off("call_cancelled", onCancelNotif);
       socketService.off("call_missed", onCancelNotif);
+      socketService.off("new_notification", onNewNotification);
     };
   }, [user]);
 
@@ -201,6 +218,10 @@ export default function RootLayout() {
         <Stack.Screen name="call-history" />
         <Stack.Screen name="edit-profile" />
         <Stack.Screen name="notifications" />
+        <Stack.Screen name="support" />
+        <Stack.Screen name="favorites" />
+        <Stack.Screen name="earnings" />
+        <Stack.Screen name="reviews" />
         <Stack.Screen name="privacy" />
         <Stack.Screen name="terms" />
       </Stack>

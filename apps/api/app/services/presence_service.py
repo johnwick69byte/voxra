@@ -87,10 +87,6 @@ async def force_offline(creator_id: str) -> dict:
     for call in ringing:
         await call_service.miss_call(call["call_id"])
 
-    await db.creator_profiles.update_one(
-        {"user_id": creator_id},
-        {"$set": {"is_busy": False}},
-    )
     await emit_to_user(
         creator_id,
         "creator_status",

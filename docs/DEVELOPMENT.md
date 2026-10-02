@@ -23,7 +23,7 @@ cd apps/mobile && yarn && EXPO_PUBLIC_API_URL=https://voxra-dkfe.onrender.com/ap
 
 Bootstrap admin: open admin → **Bootstrap first admin** (or `POST /api/admin/bootstrap`).
 
-Dev OTP: `123456`
+Dev OTP: `7723` (hardcoded in `auth_service.py`, accepted in every environment)
 
 ## Store / launch notes
 - Android package / iOS bundle: `com.simple_talk.app`

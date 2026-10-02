@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from app.core.database import get_db
 from app.core.database_redis import get_redis
+from app.core.socket import emit_to_user
 from app.services import push_service
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,7 @@ async def notify_followers_creator_online(creator_id: str, *, reason: str = "onl
         fid = f["follower_id"]
         await db.notifications.insert_one(
             {
+                "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
                 "user_id": fid,
                 "title": title,
                 "body": body,
@@ -45,6 +48,11 @@ async def notify_followers_creator_online(creator_id: str, *, reason: str = "onl
                 "read": False,
                 "created_at": datetime.now(timezone.utc),
             }
+        )
+        await emit_to_user(
+            fid,
+            "new_notification",
+            {"title": title, "message": body, "type": "creator_online", "creator_id": creator_id},
         )
         token_doc = await db.push_tokens.find_one({"user_id": fid}, {"_id": 0})
         if token_doc and token_doc.get("device_push_token"):

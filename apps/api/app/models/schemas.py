@@ -239,6 +239,39 @@ class WithdrawalRequest(BaseModel):
     account_name: Optional[str] = None
 
 
+class FavoriteRequest(BaseModel):
+    model_id: str
+
+
+class ReportUserRequest(BaseModel):
+    reported_user_id: str
+    reason: str = "abuse"
+
+
+class BlockUserRequest(BaseModel):
+    blocked_user_id: str
+
+
+class ModerationCallReport(BaseModel):
+    call_id: str
+    reported_user_id: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class WithdrawalIncreaseRequest(BaseModel):
+    requested_max_amount: float
+    reason: Optional[str] = None
+
+
+class AgoraTokenRequest(BaseModel):
+    channel_name: str
+    uid: int = 0
+
+
+class SupportReplyRequest(BaseModel):
+    reply: str
+
+
 # Response helpers
 class ApiOk(BaseModel):
     success: bool = True

@@ -7,12 +7,13 @@ import {
   Dimensions,
   ScrollView,
   FlatList,
+  Pressable,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import Toast from "react-native-toast-message";
-import { creatorsAPI, callsAPI } from "../../src/services/api";
+import { creatorsAPI, callsAPI, favoritesAPI } from "../../src/services/api";
 import { StatusDot } from "../../src/components/StatusDot";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText } from "../../src/components/ui";
@@ -30,6 +31,7 @@ export default function CreatorProfile() {
   const [creator, setCreator] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [photoIdx, setPhotoIdx] = useState(0);
+  const [isFavorite, setIsFavorite] = useState(false);
 
   useEffect(() => {
     creatorsAPI.get(String(id)).then((r) => {
@@ -39,7 +41,23 @@ export default function CreatorProfile() {
         AsyncStorage.setItem(LAST_RATE_KEY, String(c.audio_rate_per_minute));
       }
     });
+    favoritesAPI
+      .check(String(id))
+      .then((r) => setIsFavorite(!!r.data.is_favorite))
+      .catch(() => {});
   }, [id]);
+
+  const toggleFavorite = async () => {
+    const next = !isFavorite;
+    setIsFavorite(next);
+    try {
+      if (next) await favoritesAPI.add(String(id));
+      else await favoritesAPI.remove(String(id));
+    } catch {
+      setIsFavorite(!next);
+      Toast.show({ type: "error", text1: "Could not update favorites" });
+    }
+  };
 
   const photos = useMemo(() => {
     if (!creator) return [];
@@ -141,7 +159,21 @@ export default function CreatorProfile() {
 
           {(creator.recent_reviews || []).length > 0 ? (
             <View style={{ marginTop: 24 }}>
-              <AppText variant="label">Recent reviews</AppText>
+              <View style={styles.reviewHead}>
+                <AppText variant="label">Recent reviews</AppText>
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: "/reviews",
+                      params: { id: String(id), name: creator.name || "" },
+                    })
+                  }
+                >
+                  <AppText variant="caption" color={theme.colors.brandLight}>
+                    See all
+                  </AppText>
+                </Pressable>
+              </View>
               {(creator.recent_reviews || []).slice(0, 5).map((r: any, i: number) => (
                 <View key={r.call_id || i} style={styles.reviewRow}>
                   <AppText style={styles.reviewStars}>{"★".repeat(r.rating || 0)}</AppText>
@@ -161,6 +193,12 @@ export default function CreatorProfile() {
               setCreator(r.data.creator);
             }}
             style={{ marginTop: 20 }}
+          />
+          <PrimaryButton
+            label={isFavorite ? "♥ Saved" : "♡ Save to favorites"}
+            variant="ghost"
+            onPress={toggleFavorite}
+            style={{ marginTop: 10 }}
           />
         </Animated.View>
       </ScrollView>
@@ -238,6 +276,12 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.bodySemi,
     color: theme.colors.text,
     fontSize: 16,
+  },
+  reviewHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
   },
   reviewRow: {
     marginTop: 10,

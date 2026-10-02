@@ -3,11 +3,12 @@ from fastapi.responses import HTMLResponse
 
 from app.core.rate_limit import check_rate_limit
 from app.core.security import require_user, require_creator
-from app.models.schemas import RechargeInitiateRequest, WithdrawalRequest
+from app.models.schemas import RechargeInitiateRequest, WithdrawalRequest, WithdrawalIncreaseRequest
 from app.services import payment_service, wallet_service
 from app.core.database import get_db
 from app.core.config import get_settings
 from datetime import datetime, timezone
+import uuid
 
 router = APIRouter(prefix="/wallet", tags=["wallet"])
 
@@ -131,4 +132,47 @@ async def withdraw(body: WithdrawalRequest, user: dict = Depends(require_creator
             "created_at": datetime.now(timezone.utc),
         }
     )
+    await wallet_service.insert_transaction(
+        user_id=user["user_id"],
+        tx_type="WITHDRAW_HOLD",
+        amount=body.amount,
+        description="Withdrawal requested",
+        metadata={"request_id": req_id, "upi_id": body.upi_id},
+        transaction_id=f"tx_withdraw_{req_id}",
+    )
     return {"success": True, "request_id": req_id}
+
+
+@router.get("/withdrawal/requests")
+async def withdrawal_requests(user: dict = Depends(require_creator)):
+    db = get_db()
+    reqs = (
+        await db.withdrawal_requests.find({"user_id": user["user_id"]}, {"_id": 0})
+        .sort("created_at", -1)
+        .to_list(100)
+    )
+    return {"success": True, "requests": reqs}
+
+
+@router.post("/withdrawal/request-increase")
+async def request_withdrawal_increase(body: WithdrawalIncreaseRequest, user: dict = Depends(require_creator)):
+    if body.requested_max_amount <= 25000:
+        raise HTTPException(400, "Requested amount must be greater than the current ₹25000 maximum")
+    db = get_db()
+    existing = await db.withdrawal_increase_requests.find_one(
+        {"user_id": user["user_id"], "status": "PENDING"}, {"_id": 0}
+    )
+    if existing:
+        raise HTTPException(400, "You already have a pending withdrawal increase request")
+    req_id = f"wir_{uuid.uuid4().hex[:12]}"
+    await db.withdrawal_increase_requests.insert_one(
+        {
+            "request_id": req_id,
+            "user_id": user["user_id"],
+            "requested_max_amount": body.requested_max_amount,
+            "reason": (body.reason or "").strip() or None,
+            "status": "PENDING",
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+    return {"success": True, "request_id": req_id, "message": "Withdrawal increase request submitted"}

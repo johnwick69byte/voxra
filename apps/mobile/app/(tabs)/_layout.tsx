@@ -12,6 +12,7 @@ import { useEffect } from "react";
 import { useRouter } from "expo-router";
 import { useAuthStore } from "../../src/store/authStore";
 import { creatorsAPI } from "../../src/services/api";
+import { useNotificationsStore } from "../../src/store/notificationsStore";
 
 function ScaleTabButton(props: any) {
   const scale = useSharedValue(1);
@@ -46,7 +47,13 @@ export default function TabsLayout() {
   const router = useRouter();
   const userType = useAuthStore((s) => s.user?.user_type);
   const userId = useAuthStore((s) => s.user?.user_id);
+  const unread = useNotificationsStore((s) => s.unread);
+  const refreshUnread = useNotificationsStore((s) => s.refresh);
   const isCreator = userType === "creator";
+
+  useEffect(() => {
+    if (userId) refreshUnread();
+  }, [userId, refreshUnread]);
 
   useEffect(() => {
     if (!isCreator || !userId) return;
@@ -117,6 +124,8 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: "Profile",
+          tabBarBadge: unread > 0 ? unread : undefined,
+          tabBarBadgeStyle: { backgroundColor: theme.colors.brand, fontSize: 10 },
           tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
         }}
       />

@@ -20,7 +20,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { walletAPI } from "../../src/services/api";
+import { walletAPI, withdrawalAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText, Card } from "../../src/components/ui";
@@ -47,6 +47,7 @@ export default function WalletScreen() {
   const [withdrawAmt, setWithdrawAmt] = useState("");
   const [upi, setUpi] = useState("");
   const [accountName, setAccountName] = useState("");
+  const [increaseAmt, setIncreaseAmt] = useState("");
   const scale = useSharedValue(1);
   const prevBalance = useRef(0);
 
@@ -190,6 +191,28 @@ export default function WalletScreen() {
     return Math.floor(amount / lastRate);
   };
 
+  const requestIncrease = async () => {
+    const amount = Number(increaseAmt);
+    if (!amount || amount <= 25000) {
+      Toast.show({ type: "error", text1: "Must be greater than ₹25,000" });
+      return;
+    }
+    setLoading(true);
+    try {
+      await withdrawalAPI.requestIncrease(amount);
+      Toast.show({ type: "success", text1: "Request submitted" });
+      setIncreaseAmt("");
+    } catch (e: any) {
+      Toast.show({
+        type: "error",
+        text1: "Could not submit",
+        text2: e?.response?.data?.detail || e.message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <View style={styles.wrap}>
       <AppText style={styles.brand}>Wallet</AppText>
@@ -240,6 +263,20 @@ export default function WalletScreen() {
             onChangeText={setUpi}
           />
           <PrimaryButton label="Request withdrawal" onPress={withdraw} loading={loading} style={{ marginTop: 10 }} />
+          <TextInput
+            style={styles.wdInput}
+            placeholder="Increase limit to (₹, min 25000+)"
+            placeholderTextColor="rgba(255,255,255,0.45)"
+            keyboardType="number-pad"
+            value={increaseAmt}
+            onChangeText={setIncreaseAmt}
+          />
+          <PrimaryButton
+            label="Request limit increase"
+            variant="ghost"
+            onPress={requestIncrease}
+            style={{ marginTop: 8 }}
+          />
         </Animated.View>
       ) : earnings > 0 ? (
         <AppText variant="caption" style={{ paddingHorizontal: 24 }}>

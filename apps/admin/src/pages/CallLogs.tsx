@@ -1,45 +1,76 @@
 import { useEffect, useState } from "react";
 import { adminAPI } from "../services/api";
 
+function inr(n: number | undefined) {
+  return `₹${Number(n || 0).toFixed(2)}`;
+}
+
 export default function CallLogs() {
   const [calls, setCalls] = useState<any[]>([]);
-  const [missed, setMissed] = useState<any[]>([]);
+  const [summary, setSummary] = useState<any>({});
+
   useEffect(() => {
-    (async () => {
-      const [l, m] = await Promise.all([adminAPI.callLogs(), adminAPI.missed()]);
-      setCalls(l.data.calls || []);
-      setMissed(m.data.calls || []);
-    })();
+    adminAPI
+      .callLogs()
+      .then((r) => {
+        setCalls(r.data.calls || []);
+        setSummary(r.data.summary || {});
+      })
+      .catch(() => {});
   }, []);
+
   return (
     <div>
       <h1 className="page-title">Call logs</h1>
-      <p className="page-sub">Recent calls and missed rings for monitoring quality.</p>
-      <div className="panel">
-        <h3>Missed ({missed.length})</h3>
-        <table>
-          <thead><tr><th>Call</th><th>Creator</th><th>Caller</th></tr></thead>
-          <tbody>
-            {missed.slice(0, 20).map((c) => (
-              <tr key={c.call_id}><td>{c.call_id}</td><td>{c.receiver_id}</td><td>{c.caller_id}</td></tr>
-            ))}
-          </tbody>
-        </table>
+      <p className="page-sub">Completed call history and financial performance.</p>
+
+      <div className="grid">
+        <div className="metric">
+          <div className="label">Total revenue</div>
+          <div className="value">{inr(summary.total_revenue)}</div>
+        </div>
+        <div className="metric">
+          <div className="label">Creator earnings</div>
+          <div className="value">{inr(summary.total_model_earnings)}</div>
+        </div>
+        <div className="metric">
+          <div className="label">Platform commission</div>
+          <div className="value">{inr(summary.total_platform_commission)}</div>
+        </div>
       </div>
+
       <div className="panel">
-        <h3>All recent</h3>
         <table>
-          <thead><tr><th>Call</th><th>Status</th><th>Type</th><th>Amount</th><th>Duration</th></tr></thead>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Creator</th>
+              <th>Caller</th>
+              <th>Type</th>
+              <th>Duration</th>
+              <th>Status</th>
+              <th>Total</th>
+              <th>Earnings</th>
+              <th>Commission</th>
+            </tr>
+          </thead>
           <tbody>
             {calls.map((c) => (
               <tr key={c.call_id}>
-                <td>{c.call_id}</td>
+                <td>{c.created_at ? new Date(c.created_at).toLocaleString() : "—"}</td>
+                <td>{c.receiver_name || c.receiver_id}</td>
+                <td>{c.caller_name || c.caller_id}</td>
+                <td><span className="badge">{c.call_type}</span></td>
+                <td>{Math.floor((c.duration_seconds || 0) / 60)}m {(c.duration_seconds || 0) % 60}s</td>
                 <td>{c.status}</td>
-                <td>{c.call_type}</td>
-                <td>₹{(c.total_amount || 0).toFixed(0)}</td>
-                <td>{c.duration_seconds || 0}s</td>
+                <td>{inr(c.total_amount)}</td>
+                <td>{inr(c.model_earnings)}</td>
+                <td>{inr(c.commission)}</td>
               </tr>
             ))}
+            {!calls.length && (
+              <tr><td colSpan={9} style={{ color: "var(--muted)" }}>No calls yet</td></tr>
+            )}
           </tbody>
         </table>
       </div>

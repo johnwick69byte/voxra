@@ -18,6 +18,11 @@ function cmp(a: string, b: string) {
 
 export function ForceUpdateGate() {
   const [required, setRequired] = useState(false);
+  const [storeUrl, setStoreUrl] = useState(
+    Platform.OS === "ios"
+      ? "https://apps.apple.com/app/id0000000000"
+      : "https://play.google.com/store/apps/details?id=com.simple_talk.app"
+  );
 
   useEffect(() => {
     (async () => {
@@ -28,6 +33,8 @@ export function ForceUpdateGate() {
           Platform.OS === "ios"
             ? res.data.min_version_ios
             : res.data.min_version_android;
+        const configured = Platform.OS === "ios" ? res.data.app_store_url : res.data.play_store_url;
+        if (configured) setStoreUrl(configured);
         if (min && cmp(current, min) < 0) setRequired(true);
       } catch {
         /* offline — skip */
@@ -44,13 +51,7 @@ export function ForceUpdateGate() {
         <Text style={styles.body}>A newer version is required to continue. Instant calls and payments need the latest build.</Text>
         <PrimaryButton
           label="Update now"
-          onPress={() =>
-            Linking.openURL(
-              Platform.OS === "ios"
-                ? "https://apps.apple.com"
-                : "https://play.google.com/store"
-            )
-          }
+          onPress={() => Linking.openURL(storeUrl)}
         />
       </View>
     </Modal>

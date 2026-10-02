@@ -142,7 +142,23 @@ export default function LiveOps() {
                 <td>{c.caller_id}</td>
                 <td>{c.receiver_id}</td>
                 <td>₹{c.rate_per_minute}/min</td>
-                <td>
+                <td className="row">
+                  <button
+                    className="btn ghost"
+                    onClick={async () => {
+                      try {
+                        const r = await adminAPI.monitorToken(c.channel_name);
+                        await navigator.clipboard?.writeText(
+                          `${r.data.appId} / ${r.data.channel_name} / ${r.data.token}`
+                        );
+                        toast.success("Spectator token copied to clipboard");
+                      } catch {
+                        toast.error("Could not generate monitor token");
+                      }
+                    }}
+                  >
+                    Monitor
+                  </button>
                   <button
                     className="btn danger"
                     onClick={async () => {

@@ -4,7 +4,7 @@ API: https://voxra-dkfe.onrender.com
 
 ## Auth
 - [ ] Fan: 10-digit phone required; invalid first digit blocked
-- [ ] OTP field max 6; verify disabled until 6 digits
+- [ ] OTP field max 4; verify disabled until 4 digits
 - [ ] Resend cooldown 30s; HTTP 429 after 5 sends / 10 min
 - [ ] Verify rate limit 10 / 10 min
 - [ ] Complete profile: name min 2, optional photo, creator bio

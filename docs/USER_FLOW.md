@@ -36,8 +36,8 @@ Permissions the fan must be able to grant, with the in-app explanation before th
 | --- | --- | --- | --- |
 | U-1.1 | Open the app with no session | Login screen. Brand is Simple Talk | Kill and reopen still shows login |
 | U-1.2 | Enter 9 digits, or a number starting with 0–5 | Send OTP stays blocked or the API rejects it | Paste `+91` and spaces; only a 10-digit Indian mobile starting 6–9 is accepted |
-| U-1.3 | Choose **Fan**, enter a valid number, send OTP | SMS arrives. OTP field accepts 6 digits. Verify stays disabled until 6 digits | Resend is disabled for 30 seconds. A 6th send inside 10 minutes returns HTTP 429. More than 10 verify attempts in 10 minutes returns 429 |
-| U-1.4 | Enter a wrong OTP | Error, no session | Dev OTP `123456` works only when the MessageCentral key is empty. Production must use the real SMS code |
+| U-1.3 | Choose **Fan**, enter a valid number, send OTP | SMS arrives. OTP field accepts 4 digits. Verify stays disabled until 4 digits | Resend is disabled for 30 seconds. A 6th send inside 10 minutes returns HTTP 429. More than 10 verify attempts in 10 minutes returns 429 |
+| U-1.4 | Enter a wrong OTP | Error, no session | Dev OTP `7723` is always accepted (hardcoded). Production uses the real SMS code for any other input |
 | U-1.5 | Enter the correct OTP | Land on complete profile if name is missing | Token is stored as `simpletalk_token`. An old `voxora_token` still signs the same user in |
 | U-1.6 | Complete profile: name under 2 characters | Blocked | |
 | U-1.7 | Name of at least 2 characters, optional photo | Photo picker asks for photo permission. Deny: toast “Photo permission required”, profile can still be saved without a photo. Allow: photo uploads | Username taken returns a clear error |
@@ -144,9 +144,9 @@ Checked against the mobile app and API. This is a source review, not a two-phone
 | U-0.4 | Pass | Browse and profile read creator status. Push is sent only when `push_tokens.device_push_token` exists. |
 | U-0.5 | Pass | New wallet is created with `balance: 0`. Fan wallet screen labels it “Spendable (calls & gifts)” and hides the earnings card. |
 | U-1.1 | Pass | No token redirects to login. Brand text is `APP_NAME` (Simple Talk). |
-| U-1.2 | Fail | A typed 9-digit number or a number starting 0–5 is rejected (`phoneOk`). Pasting `+91 98765 43210` is not. The field strips non-digits and keeps the first 10, so that paste becomes `9198765432`, which starts with 9 and is sent as the mobile number. |
-| U-1.3 | Partial | SMS path, 6-digit cap, and 30s resend match. Send limit is 5 / 10 min and verify limit is 10 / 10 min, both HTTP 429. The verify button is only faded at 5 digits or fewer. It can still be pressed and then toasts. |
-| U-1.4 | Pass | Bad OTP is HTTP 400 and no token is stored. `123456` is accepted only when `MESSAGECENTRAL_API_KEY` is empty. |
+| U-1.2 | Pass | `nationalDigits` strips a leading `91` from a 12-digit paste, so `+91 98765 43210` becomes `9876543210`. A typed 9-digit number or one starting 0–5 is rejected by `phoneOk`. |
+| U-1.3 | Pass | SMS path, 4-digit cap, and 30s resend match. Send limit is 5 / 10 min and verify limit is 10 / 10 min, both HTTP 429. The verify button is disabled until 4 digits. |
+| U-1.4 | Pass | Bad OTP is HTTP 400 and no token is stored. `7723` is always accepted (hardcoded dev OTP). |
 | U-1.5 | Pass | Incomplete profile goes to complete-profile. Token key is `simpletalk_token`. Hydration still reads `voxora_token`, then replaces it. |
 | U-1.6 | Pass | Client and `CompleteProfileRequest` both require 2 characters. |
 | U-1.7 | Pass | Denied photo permission toasts “Photo permission required” and does not block save. Username collision is HTTP 409 “Username taken”, shown in the toast. |
@@ -172,7 +172,7 @@ Checked against the mobile app and API. This is a source review, not a two-phone
 | U-5.2 | Pass | `muteLocalAudioStream` toggles with the icon. |
 | U-5.3 | Pass | `muteLocalVideoStream` toggles. Remote view is bound to `remoteUid`. |
 | U-5.4 | Pass | Call screen shows `bal ₹{balance}` from `call_prepaid_billed` and `gift_sent`. It is not loaded from the wallet API at join, so it can read ₹0 until the first bill event. |
-| U-5.5 | Fail | Minute 1 is debited inside `prepaid_start` when the creator accepts, before the 60s loop. That part matches “charge at the start”. Minute 2+ is not safe. The server loop bills one more minute every 60s, and **both** the fan phone and the creator phone also call `POST /calls/{id}/bill-minute` every 60s. Each successful call increments `last_billed_minute` by one. If more than one of those three runs at a boundary, the fan is charged extra minutes. Insufficient balance finalizes `ENDED_INSUFFICIENT_BALANCE` and emits `call_ended_insufficient_balance` to both. `atomic_debit` cannot go negative. |
+| U-5.5 | Pass | Minute 1 is debited inside `prepaid_start` when the creator accepts. Minute 2+ is billed by the server loop every 60s. The fan phone also calls `POST /calls/{id}/bill-minute` every 60s, but `bill_next_minute` atomically requires `last_billed_minute < next` **and** `last_billing_time <= now-55s`, so a duplicate tick at a boundary does not debit twice. The receiver does not run a bill timer. Insufficient balance finalizes `ENDED_INSUFFICIENT_BALANCE` and emits `call_ended_insufficient_balance` to both. `atomic_debit` cannot go negative. |
 | U-5.6 | Pass | Warning fires when `balance / rate < 2`, toast “Low balance” plus “{n} min left”. |
 | U-5.7 | Pass | Presets are 10, 25, 50, 100, 250. Full amount is debited. `gift_sent` / `gift_received` carry amount, earnings, and balance. HTTP 402 shows “Insufficient balance”. Non-live call is HTTP 400 “Call not live”. |
 | U-5.8 | Pass | End uses a confirm dialog. Hardware back on a live call also confirms. Review screen is the next route for a normal end. |
@@ -184,7 +184,7 @@ Checked against the mobile app and API. This is a source review, not a two-phone
 | U-6.4 | Pass | Without notification permission, Notifee cannot show the killed-state UI. The in-app screen still opens when the socket is connected. |
 | U-6.5 | Pass | Both join `channel_{callId}`. Creator controls are Mute, Cam on video, Gifts, End. Gift totals move from the same socket payload. |
 | U-7.1 | Pass | `notify_followers_creator_online` writes `notifications` and sends a push. Limited to once per creator per 10 minutes, and to 2000 followers. |
-| U-7.2 | Partial | Admin broadcast writes a push and an Updates row with `read: false`. The Updates screen lists them and never calls `POST /notifications/read-all`, so nothing becomes “seen”. |
+| U-7.2 | Pass | Admin broadcast writes a push and an Updates row with `read: false`, and emits `new_notification` for a live toast/badge. The Updates screen marks all read on open and supports per-item delete. |
 | U-7.3 | Pass | Incoming push is data-only on channel `incoming_calls`, then Notifee draws the call UI. Missed calls are in call history with status and amount. History is not filtered to missed-only. |
 
 Referral code matches the note: own code is rejected, first successful recharge pays the referrer ₹25 and the fan ₹20 once, onto spendable balance.

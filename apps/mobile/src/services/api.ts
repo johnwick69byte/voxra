@@ -44,6 +44,8 @@ export const creatorsAPI = {
   status: (id: string) => api.get(`/creators/${id}/status`),
   follow: (id: string) => api.post(`/follow/${id}`),
   unfollow: (id: string) => api.delete(`/follow/${id}`),
+  followStatus: (id: string) => api.get(`/follow/status/${id}`),
+  followers: () => api.get("/follow/followers"),
   following: () => api.get("/following"),
   pricingSetup: (data: Record<string, unknown>) => api.post("/profile/pricing-setup", data),
   toggleDnd: () => api.post("/profile/dnd"),
@@ -56,6 +58,42 @@ export const creatorsAPI = {
     api.post("/profile/verification/selfie", { verification_id, image_base64 }),
   onboardingStatus: () => api.get("/profile/onboarding-status"),
   block: (userId: string) => api.post(`/users/${userId}/block`),
+};
+
+export const favoritesAPI = {
+  add: (modelId: string) => api.post("/favorites/add", { model_id: modelId }),
+  remove: (modelId: string) => api.post("/favorites/remove", { model_id: modelId }),
+  list: () => api.get("/favorites"),
+  check: (modelId: string) => api.get(`/favorites/check/${modelId}`),
+};
+
+export const moderationAPI = {
+  reportUser: (reportedUserId: string, reason: string) =>
+    api.post("/report-user", { reported_user_id: reportedUserId, reason }),
+  reportCall: (callId: string, reportedUserId: string, reason: string) =>
+    api.post("/report-call", { call_id: callId, reported_user_id: reportedUserId, reason }),
+  blockUser: (blockedUserId: string) => api.post("/block-user", { blocked_user_id: blockedUserId }),
+  unblockUser: (blockedUserId: string) => api.post("/unblock-user", { blocked_user_id: blockedUserId }),
+  blockedUsers: () => api.get("/blocked-users"),
+};
+
+export const reviewsAPI = {
+  list: (modelId: string, limit = 50, skip = 0) =>
+    api.get(`/models/${modelId}/reviews`, { params: { limit, skip } }),
+  stats: (modelId: string) => api.get(`/models/${modelId}/reviews/stats`),
+};
+
+export const earningsAPI = {
+  overview: () => api.get("/profile/earnings/overview"),
+  breakdown: (period = "month") => api.get("/profile/earnings/breakdown", { params: { period } }),
+  calls: (limit = 50) => api.get("/profile/earnings/calls", { params: { limit } }),
+  gifts: (limit = 50) => api.get("/profile/earnings/gifts", { params: { limit } }),
+};
+
+export const withdrawalAPI = {
+  requests: () => api.get("/withdrawal/requests"),
+  requestIncrease: (requested_max_amount: number, reason?: string) =>
+    api.post("/withdrawal/request-increase", { requested_max_amount, reason }),
 };
 
 export const callsAPI = {
@@ -103,7 +141,11 @@ export const walletAPI = {
 export const appAPI = {
   config: () => api.get("/app/config"),
   notifications: () => api.get("/notifications"),
+  unreadCount: () => api.get("/notifications/unread-count"),
+  markNotificationRead: (id: string) => api.post(`/notifications/${id}/read`),
+  deleteNotification: (id: string) => api.delete(`/notifications/${id}`),
   markNotificationsRead: () => api.post("/notifications/read-all"),
   support: (subject: string, message: string) =>
     api.post("/support/message", { subject, message }),
+  supportMessages: () => api.get("/support/messages"),
 };

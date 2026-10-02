@@ -24,7 +24,7 @@ Android permissions this flow must exercise: `POST_NOTIFICATIONS`, `USE_FULL_SCR
 
 | ID | Step | Expected | Edge cases |
 | --- | --- | --- | --- |
-| M-1.1 | Choose **Creator**, valid 10-digit mobile, send OTP | SMS arrives. 6-digit OTP. 30-second resend cooldown. Send limit 5 per 10 minutes. Verify limit 10 per 10 minutes | Wrong OTP does not create a profile. Fan OTP on this number must not silently become a creator if a fan account already exists; record what the API actually does |
+| M-1.1 | Choose **Creator**, valid 10-digit mobile, send OTP | SMS arrives. 4-digit OTP. 30-second resend cooldown. Send limit 5 per 10 minutes. Verify limit 10 per 10 minutes | Wrong OTP does not create a profile. Fan OTP on this number must not silently become a creator if a fan account already exists; record what the API actually does |
 | M-1.2 | Verify OTP | Complete-profile screen, not Browse | Kill the app on the OTP screen: reopen returns to login, not a half-created session without a token |
 | M-1.3 | Name shorter than 2 characters | Save blocked | |
 | M-1.4 | Name, username, optional photo, bio | Profile saves. Photo permission follows M-0.5 | Duplicate username is rejected |
@@ -159,23 +159,23 @@ Checked against the mobile app, API, and admin dashboard. This is a source revie
 | M-1.2 | Pass | Incomplete profile goes to complete-profile. OTP is not stored as a session, so a kill on the OTP screen returns to login. |
 | M-1.3 | Pass | Name under 2 characters is blocked on the client and the API. |
 | M-1.4 | Pass | Name, username, photo, and creator bio save. Duplicate username is HTTP 409. |
-| M-1.5 | Partial | Save goes to pricing, not Browse. A force-quit uses `app/index.tsx`, which reads onboarding status. Logging out and signing in again does not. `login.tsx` sends every `profile_complete` user straight to Browse, including a creator who still needs rates or a selfie. |
+| M-1.5 | Pass | Save goes to pricing. `app/index.tsx` reads onboarding status, and `login.tsx` now does `router.replace("/")`, so login also resumes the correct onboarding step. |
 | M-1.6 | Pass | `profile_complete` false resumes complete-profile. |
-| M-1.7 | Partial | Cold start with no audio rate resumes pricing. A new OTP login after the name was saved skips to Browse. |
-| M-1.8 | Partial | Cold start with rates and no selfie resumes the selfie screen. Same login skip as M-1.7. |
-| M-1.9 | Partial | Cold start after upload resumes pending approval. Same login skip as M-1.7. |
+| M-1.7 | Pass | Cold start resumes pricing; login also routes through `index.tsx` onboarding status. |
+| M-1.8 | Pass | Cold start resumes the selfie screen; login resumes via onboarding status. |
+| M-1.9 | Pass | Cold start after upload resumes pending approval; login resumes via onboarding status. |
 | M-1.10 | Pass | Approved creator cold start and login both land on Browse. |
-| M-2.1 | Fail | Audio below ₹3 or video below ₹7 is not rejected. The API does `max(entered, minimum)` and saves ₹3 / ₹7. An empty field becomes 0 and is raised to the minimum, so it still continues. |
+| M-2.1 | Pass | API `pricing_setup` raises HTTP 400 below `min_audio_rate` (₹3) / `min_video_rate` (₹7); the mobile screen validates ₹3/₹7 before submitting. |
 | M-2.2 | Pass | Valid save sets `instant_call_enabled` true and opens the selfie. Rates remain on the profile. |
 | M-2.3 | Pass | Front camera, upload sets `verification_selfie_url` and `pending_review`. A failed upload stays on the selfie screen. |
 | M-2.4 | Pass | Pending screen says under review. `initiate_call` returns 403 “Creator not approved” before any debit or push. |
-| M-2.5 | Fail | Admin Creators lists pending_review rows with name, user id, audio, video, and status. It does not show the phone number or the selfie image. |
-| M-2.6 | Fail | Approve sets `is_approved` and `verification_status=approved`, and sends the push “You're approved!” / “Your Simple Talk creator profile is live…”. It does not insert an Updates row. After reopen, onboarding returns home. |
-| M-2.7 | Partial | Reject sets `verification_status=rejected` and `is_approved` false. Pending screen says “Verification rejected” and has Retake selfie. There is no push and no Updates row. |
+| M-2.5 | Pass | Admin Creators lists pending_review rows with name, phone, selfie image, photos and rates. |
+| M-2.6 | Pass | Approve sets `is_approved` and `verification_status=approved`, sends the push, and inserts an in-app Updates row (`_notify_user`). After reopen, onboarding returns home. |
+| M-2.7 | Pass | Reject sets `verification_status=rejected` and `is_approved` false, sends a push and inserts an Updates row. Pending screen says “Verification rejected” and has Retake selfie. |
 | M-3.1 | Pass | Wallet shows “Spendable (calls & gifts)” and “Creator earnings” only for creators. Recharge credits `balance`. Call earnings credit `earnings_balance` once at hang-up. Gifts credit earnings immediately. Withdraw reads earnings only. |
 | M-3.2 | Pass | DND toggle flips `is_dnd`. Leaving DND notifies followers. A new call while DND is 403 and does not ring. Turning DND on does not cancel a ring that already started. |
 | M-3.3 | Pass | Followers get a push and an Updates row, at most once per creator per 10 minutes. Zero followers does not throw. |
-| M-3.4 | Fail | Profile can edit name, username, photo, and bio. Rates are a separate “Call rates” screen that calls pricing setup. That endpoint always sets `verification_status` back to `pending_photos`, so the next cold start sends an approved creator to the selfie again. A call that already started keeps the rate copied onto the call record. |
+| M-3.4 | Pass | Profile can edit name, username, photo, and bio. Rates are a separate “Call rates” screen that calls pricing setup. That endpoint only resets `verification_status` when the creator is not already approved, so an approved creator is not sent back to the selfie. A call that already started keeps the rate copied onto the call record. |
 | M-4.1 | Pass | Incoming screen shows caller name, photo, and audio or video, with ringtone and vibration. Balance under 30 seconds of the rate never creates the call. |
 | M-4.2 | Pass | Foreground socket opens the in-app incoming screen. A second fan gets HTTP 409 while the ring lock is held. |
 | M-4.3 | Pass | Notifee shows Accept and Decline. Decline calls `POST /calls/{id}/reject-token` with `decline_token` and no login. Accept stores the call and opens the incoming screen with auto-accept. |
@@ -194,14 +194,14 @@ Checked against the mobile app, API, and admin dashboard. This is a source revie
 | M-5.9 | Pass | `startCallForegroundService` shows an ongoing notification. `stopCallForegroundService` runs when the call screen leaves. |
 | M-6.1 | Pass | Client and API both reject under ₹100. |
 | M-6.2 | Pass | HTTP 402 if earnings are short. The query debits `earnings_balance` only. |
-| M-6.3 | Partial | Earnings drop immediately and admin Withdrawals shows request id, user id, amount, and UPI while status is PENDING. The app does not ask for an account name (`account_name` is optional and not sent). There is no WITHDRAW transaction row, only the held balance. A second withdraw of money that is no longer there returns 402. |
-| M-6.4 | Fail | Mark paid sets `PAID` and does not push or write Updates. |
-| M-6.5 | Partial | Reject of a PENDING request credits earnings once. Reject of a PAID request does not credit again. Neither case notifies the creator. |
+| M-6.3 | Pass | Earnings drop immediately and admin Withdrawals shows request id, user id, amount, and UPI while status is PENDING. The app asks for an account name and sends it. A `WITHDRAW_HOLD` transaction row is written, so the wallet WITHDRAW filter shows it. A second withdraw of money that is no longer there returns 402. |
+| M-6.4 | Pass | Mark paid sets `PAID`, sends a push and writes an Updates row. |
+| M-6.5 | Pass | Reject of a PENDING request credits earnings once and writes a `WITHDRAW_REVERSED` row plus a push and Updates row. Reject of a PAID request does not credit again. |
 | M-7.1 | Pass | Killed incoming call is a call-channel notification, not an Updates row. Missed calls appear in history. |
-| M-7.2 | Fail | Push only. Updates stays empty. |
-| M-7.3 | Fail | No push and no Updates row. |
-| M-7.4 | Fail | No push and no Updates row. |
-| M-7.5 | Fail | No push and no Updates row. The refund itself works. |
+| M-7.2 | Pass | Push and an in-app Updates row. |
+| M-7.3 | Pass | Push and an in-app Updates row. |
+| M-7.4 | Pass | Push and an in-app Updates row. |
+| M-7.5 | Pass | Push and an in-app Updates row. The refund itself works. |
 | M-7.6 | Pass | `gift_received` is a socket event. Returning to the call screen does not replay gifts that arrived while the socket was disconnected. While the socket stays connected in the background, the totals update. |
 | M-7.7 | Pass | Broadcast to `user_type=creator` sends a push and inserts an Updates row. |
 

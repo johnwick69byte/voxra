@@ -39,8 +39,19 @@ export default function ProfileScreen() {
         <Pressable onPress={() => router.push("/call-history")}>
           <AppText style={styles.link}>Call history</AppText>
         </Pressable>
+        <Pressable onPress={() => router.push("/favorites")}>
+          <AppText style={styles.link}>Favorites</AppText>
+        </Pressable>
+        {isCreator && (
+          <Pressable onPress={() => router.push("/earnings")}>
+            <AppText style={styles.link}>Earnings</AppText>
+          </Pressable>
+        )}
         <Pressable onPress={() => router.push("/notifications")}>
           <AppText style={styles.link}>Notifications</AppText>
+        </Pressable>
+        <Pressable onPress={() => router.push("/support")}>
+          <AppText style={styles.link}>Help & Support</AppText>
         </Pressable>
         <Pressable onPress={() => router.push("/privacy")}>
           <AppText style={styles.link}>Privacy policy</AppText>

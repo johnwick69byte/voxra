@@ -5,8 +5,8 @@ import { adminAPI } from "../services/api";
 
 export default function Login() {
   const nav = useNavigate();
-  const [email, setEmail] = useState("admin@voxora.app");
-  const [password, setPassword] = useState("admin123456");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   const login = async () => {

@@ -24,6 +24,7 @@ export default function Financial() {
     commissions: [],
     totals: {},
   });
+  const [comType, setComType] = useState<string>("");
   const [period, setPeriod] = useState<"day" | "week" | "month">("month");
 
   useEffect(() => {
@@ -33,7 +34,7 @@ export default function Financial() {
         adminAPI.financialOverview(),
         adminAPI.financialCommissions(),
         adminAPI.financialTransactions(),
-        adminAPI.financialRechargeCommissions(50),
+        adminAPI.financialRechargeCommissions(50, comType || undefined),
       ]);
       setData(d.data);
       setOverview(o.data.overview);
@@ -41,7 +42,7 @@ export default function Financial() {
       setTransactions(tx.data.transactions || []);
       setRechargeCom(rc.data);
     })().catch(() => {});
-  }, []);
+  }, [comType]);
 
   useEffect(() => {
     adminAPI
@@ -100,22 +101,36 @@ export default function Financial() {
       )}
 
       <div className="panel">
-        <h3>Recharge commission (6% per recharge)</h3>
-        <div style={{ display: "flex", gap: 32, flexWrap: "wrap", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ margin: 0 }}>Platform commission</h3>
+          <div className="row">
+            {([
+              ["", "All"],
+              ["RECHARGE_COMMISSION", "Recharge (6%)"],
+              ["CALL_COMMISSION", "Call (15%)"],
+              ["GIFT_COMMISSION", "Gift (15%)"],
+            ] as const).map(([val, label]) => (
+              <button
+                key={label}
+                className={comType === val ? "btn" : "btn ghost"}
+                onClick={() => setComType(val as any)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 32, flexWrap: "wrap", margin: "12px 0" }}>
           <div>
             <div style={{ color: "var(--muted)", fontSize: 12 }}>Total</div>
             <div style={{ fontSize: 22, fontWeight: 700 }}>{inr(rechargeCom.totals?.total_commission)}</div>
           </div>
           <div>
-            <div style={{ color: "var(--muted)", fontSize: 12 }}>Gateway (3%)</div>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Gateway (recharge)</div>
             <div style={{ fontSize: 22, fontWeight: 700 }}>{inr(rechargeCom.totals?.gateway_commission)}</div>
           </div>
           <div>
-            <div style={{ color: "var(--muted)", fontSize: 12 }}>Service (3%)</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{inr(rechargeCom.totals?.service_commission)}</div>
-          </div>
-          <div>
-            <div style={{ color: "var(--muted)", fontSize: 12 }}>Recharges</div>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Entries</div>
             <div style={{ fontSize: 22, fontWeight: 700 }}>{rechargeCom.totals?.count || 0}</div>
           </div>
         </div>
@@ -123,9 +138,10 @@ export default function Financial() {
           <thead>
             <tr>
               <th>When</th>
-              <th>User</th>
-              <th>Paid</th>
-              <th>Credited</th>
+              <th>Type</th>
+              <th>Source</th>
+              <th>Gross</th>
+              <th>Creator</th>
               <th>Commission</th>
             </tr>
           </thead>
@@ -133,14 +149,18 @@ export default function Financial() {
             {(rechargeCom.commissions || []).map((c) => (
               <tr key={c.commission_id}>
                 <td>{c.created_at ? new Date(c.created_at).toLocaleString() : "—"}</td>
-                <td>{c.user_id}</td>
-                <td>{inr(c.original_amount)}</td>
-                <td>{inr(c.credit_amount)}</td>
+                <td><span className="badge">{c.type}</span></td>
+                <td style={{ fontSize: 12, color: "var(--muted)" }}>
+                  {c.source_id}
+                  {c.minute ? ` · min ${c.minute}` : ""}
+                </td>
+                <td>{inr(c.gross_amount)}</td>
+                <td>{inr(c.model_earnings)}</td>
                 <td>{inr(c.amount)}</td>
               </tr>
             ))}
             {!(rechargeCom.commissions || []).length && (
-              <tr><td colSpan={5} style={{ color: "var(--muted)" }}>No recharge commission yet</td></tr>
+              <tr><td colSpan={6} style={{ color: "var(--muted)" }}>No commission yet</td></tr>
             )}
           </tbody>
         </table>

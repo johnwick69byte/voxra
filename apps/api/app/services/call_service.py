@@ -31,6 +31,57 @@ def _decline_token(call_id: str) -> str:
     return f"dec_{call_id}_{uuid.uuid4().hex[:8]}"
 
 
+async def settle_minute(call: dict, *, minute: int, rate: float) -> tuple[float, float]:
+    """
+    Credit the creator 85% and log the platform 15% for one billed minute.
+
+    Idempotent per (call_id, minute): the creator transaction id and the
+    platform_commissions unique key both encode the minute, so a duplicate call
+    (server loop + client backup, or a reconciliation pass) cannot double-credit.
+    Returns (model_earnings, platform_commission).
+    """
+    db = get_db()
+    call_id = call["call_id"]
+    model_cut = round(rate * 0.85, 2)
+    platform_cut = round(rate - model_cut, 2)
+
+    # Creator earnings — guarded by the per-minute transaction id.
+    credit_tx_id = f"tx_{call_id}_m{minute}"
+    existing = await db.transactions.find_one(
+        {"transaction_id": credit_tx_id}, {"_id": 0, "transaction_id": 1}
+    )
+    if not existing:
+        await wallet_service.credit_earnings(call["receiver_id"], model_cut)
+        await wallet_service.insert_transaction(
+            user_id=call["receiver_id"],
+            tx_type="CALL_CREDIT",
+            amount=model_cut,
+            description=f"Call earnings (minute {minute})",
+            metadata={"call_id": call_id, "minute": minute, "rate_per_minute": rate},
+            transaction_id=credit_tx_id,
+        )
+
+    # Platform commission — idempotent per (call_id, minute).
+    existing_comm = await db.platform_commissions.find_one(
+        {"source_id": call_id, "type": "CALL_COMMISSION", "minute": minute},
+        {"_id": 0, "commission_id": 1},
+    )
+    if not existing_comm and platform_cut > 0:
+        await wallet_service.add_platform_balance(platform_cut)
+        await wallet_service.record_platform_commission(
+            commission_type="CALL_COMMISSION",
+            amount=platform_cut,
+            source_id=call_id,
+            user_id=call["receiver_id"],
+            gross_amount=rate,
+            model_earnings=model_cut,
+            minute=minute,
+            metadata={"call_id": call_id, "minute": minute, "caller_id": call["caller_id"]},
+        )
+
+    return model_cut, platform_cut
+
+
 async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> dict:
     db = get_db()
     settings = get_settings()
@@ -337,7 +388,9 @@ async def prepaid_start(*, call_id: str, user: dict) -> dict:
                 "$inc": {"total_amount": rate},
             },
         )
+        model_cut, _platform_cut = await settle_minute(call, minute=1, rate=rate)
         wallet = await wallet_service.get_wallet(call["caller_id"])
+        creator_wallet = await wallet_service.get_wallet(call["receiver_id"])
         payload = {
             "call_id": call_id,
             "amount": rate,
@@ -346,7 +399,15 @@ async def prepaid_start(*, call_id: str, user: dict) -> dict:
             "balance": wallet.get("balance", 0),
         }
         await emit_to_user(call["caller_id"], "call_prepaid_billed", payload)
-        await emit_to_user(call["receiver_id"], "call_prepaid_billed", payload)
+        await emit_to_user(
+            call["receiver_id"],
+            "call_prepaid_billed",
+            {
+                **payload,
+                "earnings": model_cut,
+                "earnings_balance": creator_wallet.get("earnings_balance", 0),
+            },
+        )
     else:
         await db.call_records.update_one(
             {"call_id": call_id},
@@ -356,12 +417,14 @@ async def prepaid_start(*, call_id: str, user: dict) -> dict:
     await start_billing_loop(call_id)
     tokens = agora_service.build_rtc_token(call["channel_name"])
     wallet_now = await wallet_service.get_wallet(call["caller_id"])
+    creator_wallet_now = await wallet_service.get_wallet(call["receiver_id"])
     fresh = await db.call_records.find_one({"call_id": call_id}, {"_id": 0, "total_amount": 1})
     return {
         "success": True,
         "agora": tokens,
         "status": "LIVE",
         "balance": wallet_now.get("balance", 0),
+        "earnings_balance": creator_wallet_now.get("earnings_balance", 0),
         "total_billed": float((fresh or {}).get("total_amount") or 0),
     }
 
@@ -454,6 +517,8 @@ async def bill_next_minute(call_id: str) -> bool:
     )
     total = result["total_amount"] if result else rate
     balance = updated.get("balance", 0)
+    model_cut, _platform_cut = await settle_minute(call, minute=minute_to_bill, rate=rate)
+    creator_wallet = await wallet_service.get_wallet(call["receiver_id"])
     payload = {
         "call_id": call_id,
         "amount": rate,
@@ -462,7 +527,15 @@ async def bill_next_minute(call_id: str) -> bool:
         "balance": balance,
     }
     await emit_to_user(call["caller_id"], "call_prepaid_billed", payload)
-    await emit_to_user(call["receiver_id"], "call_prepaid_billed", payload)
+    await emit_to_user(
+        call["receiver_id"],
+        "call_prepaid_billed",
+        {
+            **payload,
+            "earnings": model_cut,
+            "earnings_balance": creator_wallet.get("earnings_balance", 0),
+        },
+    )
 
     minutes_remaining = int(balance / rate) if rate > 0 else 999
     if minutes_remaining < 2:
@@ -531,6 +604,7 @@ async def finalize_call(call_id: str, status: str = "ENDED") -> dict:
         duration = max(0, int((now - live_at).total_seconds()))
 
     total = float(call.get("total_amount", 0))
+    minutes_billed = int(call.get("last_billed_minute", 0) or 0)
     commission = wallet_service.calculate_commission(total)
 
     await db.call_records.update_one(
@@ -546,22 +620,20 @@ async def finalize_call(call_id: str, status: str = "ENDED") -> dict:
         },
     )
 
-    # Credit creator earnings once
-    if commission["model_earnings"] > 0:
-        existing = await db.transactions.find_one(
-            {"metadata.call_id": call_id, "type": "CALL_CREDIT"}
-        )
-        if not existing:
-            await wallet_service.credit_earnings(call["receiver_id"], commission["model_earnings"])
-            await wallet_service.insert_transaction(
-                user_id=call["receiver_id"],
-                tx_type="CALL_CREDIT",
-                amount=commission["model_earnings"],
-                description=f"Earnings from {call.get('call_type')} call",
-                metadata={"call_id": call_id},
-                transaction_id=f"tx_{call_id}_credit",
+    # Creator + platform are paid per minute (settle_minute). Reconcile any
+    # minute that was billed (total_amount) but not yet settled, e.g. a crash
+    # between the fan debit and the credit. Idempotent per minute.
+    rate = float(call.get("rate_per_minute", 0) or 0)
+    if rate > 0 and total > 0:
+        expected_minutes = int(round(total / rate))
+        for m in range(1, expected_minutes + 1):
+            existing_credit = await db.transactions.find_one(
+                {"transaction_id": f"tx_{call_id}_m{m}"}, {"_id": 0, "transaction_id": 1}
             )
+            if not existing_credit:
+                await settle_minute(call, minute=m, rate=rate)
 
+    # Fan ledger: one consolidated debit for the whole call.
     if total > 0:
         existing_debit = await db.transactions.find_one(
             {"metadata.call_id": call_id, "type": "CALL_DEBIT"}
@@ -572,30 +644,8 @@ async def finalize_call(call_id: str, status: str = "ENDED") -> dict:
                 tx_type="CALL_DEBIT",
                 amount=total,
                 description=f"Call charge ({duration}s)",
-                metadata={"call_id": call_id, "model_id": call["receiver_id"]},
+                metadata={"call_id": call_id, "model_id": call["receiver_id"], "minutes_billed": minutes_billed},
                 transaction_id=f"tx_{call_id}_debit",
-            )
-
-    if commission["commission_amount"] > 0:
-        existing_c = await db.transactions.find_one(
-            {"metadata.call_id": call_id, "type": "COMMISSION"}
-        )
-        if not existing_c:
-            await db.platform_wallet.update_one(
-                {"platform_id": "platform_001"},
-                {
-                    "$inc": {"balance": commission["commission_amount"]},
-                    "$set": {"updated_at": now},
-                },
-                upsert=True,
-            )
-            await wallet_service.insert_transaction(
-                user_id="platform",
-                tx_type="COMMISSION",
-                amount=commission["commission_amount"],
-                description=f"Commission from {call_id}",
-                metadata={"call_id": call_id},
-                transaction_id=f"tx_{call_id}_commission",
             )
 
     payload = {

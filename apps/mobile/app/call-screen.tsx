@@ -87,6 +87,7 @@ export default function CallScreen() {
   const [giftOpen, setGiftOpen] = useState(false);
   const [giftsTotal, setGiftsTotal] = useState(0);
   const [earningsSession, setEarningsSession] = useState(0);
+  const [earningsBalance, setEarningsBalance] = useState<number | null>(null);
   const [giftFx, setGiftFx] = useState<GiftFx[]>([]);
   const [isLive, setIsLive] = useState(false);
 
@@ -329,14 +330,19 @@ export default function CallScreen() {
   }, [role, leave]);
 
   useEffect(() => {
-    if (role !== "caller") return;
+    // Load the live wallet for whichever role is on this screen.
     walletAPI
       .balance()
       .then((r) => {
-        const next = Number(r.data?.balance);
-        if (Number.isNaN(next)) return;
-        if (useCallStore.getState().totalBilled > 0) return;
-        setBilling(next, useCallStore.getState().totalBilled);
+        if (role === "caller") {
+          const next = Number(r.data?.balance);
+          if (!Number.isNaN(next) && useCallStore.getState().totalBilled === 0) {
+            setBilling(next, useCallStore.getState().totalBilled);
+          }
+        } else {
+          const e = Number(r.data?.earnings_balance);
+          if (!Number.isNaN(e)) setEarningsBalance(e);
+        }
       })
       .catch(() => {});
   }, [role, setBilling]);
@@ -351,6 +357,9 @@ export default function CallScreen() {
           if (!call || call.call_id !== callId) return;
           setGiftsTotal(Number(call.gifts_gross || 0));
           setEarningsSession(Number(call.gifts_earnings || 0));
+          if (r.data?.earnings_balance != null) {
+            setEarningsBalance(Number(r.data.earnings_balance));
+          }
         })
         .catch(() => {});
     };
@@ -383,6 +392,11 @@ export default function CallScreen() {
           const res = await callsAPI.prepaidStart(callId);
           const billed = res.data?.balance;
           if (typeof billed === "number") setBilling(billed, res.data?.total_billed ?? 0);
+        } else {
+          // Seed the creator's live earnings once media is ready.
+          const res = await walletAPI.balance();
+          const e = Number(res.data?.earnings_balance);
+          if (!Number.isNaN(e)) setEarningsBalance(e);
         }
         startTimers(role === "caller");
       } catch (e: any) {
@@ -407,7 +421,12 @@ export default function CallScreen() {
       Toast.show({ type: "info", text1: "Call ended" });
       finishLeave(true);
     };
-    const onBilled = (p: any) => setBilling(p.balance ?? 0, p.total_billed ?? 0);
+    const onBilled = (p: any) => {
+      setBilling(p.balance ?? 0, p.total_billed ?? 0);
+      if (role === "receiver" && p.earnings_balance != null) {
+        setEarningsBalance(Number(p.earnings_balance));
+      }
+    };
     const onLow = (p: any) => {
       setLowBalance(true);
       Toast.show({
@@ -523,10 +542,12 @@ export default function CallScreen() {
           {mm}:{ss}
         </Text>
         <Text style={styles.meta}>
-          {callType} · billed ₹{totalBilled.toFixed(0)} · bal ₹{balance.toFixed(0)}
-          {role === "receiver" && earningsSession > 0
-            ? ` · session earn ₹${earningsSession.toFixed(0)}`
-            : ""}
+          {callType} · billed ₹{totalBilled.toFixed(0)}
+          {role === "caller"
+            ? ` · wallet ₹${balance.toFixed(0)}`
+            : earningsBalance != null
+              ? ` · earnings ₹${earningsBalance.toFixed(0)}`
+              : ""}
           {role === "receiver" && giftsTotal > 0 ? ` · gifts ₹${giftsTotal}` : ""}
           {!IS_PROD && !isAgoraAvailable ? " · signaling" : ""}
         </Text>

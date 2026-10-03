@@ -240,9 +240,17 @@ class PushTokenRequest(BaseModel):
     platform: str = "android"
 
 
+class BankDetails(BaseModel):
+    bank_name: str
+    account_number: str
+    ifsc_code: str
+    account_holder_name: str
+
+
 class WithdrawalRequest(BaseModel):
     amount: float
     upi_id: str
+    bank_details: Optional[BankDetails] = None
     account_name: Optional[str] = None
 
 

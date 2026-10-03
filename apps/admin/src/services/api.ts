@@ -52,8 +52,8 @@ export const adminAPI = {
   financialOverview: () => api.get("/admin/financial/overview"),
   financialTransactions: (params?: any) => api.get("/admin/financial/transactions", { params }),
   financialCommissions: (params?: any) => api.get("/admin/financial/commissions", { params }),
-  financialRechargeCommissions: (limit = 100) =>
-    api.get("/admin/financial/recharge-commissions", { params: { limit } }),
+  financialRechargeCommissions: (limit = 100, type?: string) =>
+    api.get("/admin/financial/recharge-commissions", { params: { limit, type } }),
   financialAnalytics: (period = "month") =>
     api.get("/admin/financial/analytics", { params: { period } }),
 

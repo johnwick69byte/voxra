@@ -113,6 +113,16 @@ async def gift(call_id: str, body: GiftRequest, user: dict = Depends(require_use
         raise HTTPException(402, "Insufficient balance")
     commission = wallet_service.calculate_commission(amount)
     await wallet_service.credit_earnings(call["receiver_id"], commission["model_earnings"])
+    await wallet_service.add_platform_balance(commission["commission_amount"])
+    await wallet_service.record_platform_commission(
+        commission_type="GIFT_COMMISSION",
+        amount=commission["commission_amount"],
+        source_id=f"gift_{call_id}",
+        user_id=call["receiver_id"],
+        gross_amount=amount,
+        model_earnings=commission["model_earnings"],
+        metadata={"call_id": call_id, "caller_id": user["user_id"]},
+    )
     await wallet_service.insert_transaction(
         user_id=user["user_id"],
         tx_type="GIFT_DEBIT",
@@ -224,7 +234,15 @@ async def active_call(user: dict = Depends(require_user)):
     agora = None
     if call["status"] in ("ACCEPTED", "LIVE"):
         agora = agora_service.build_rtc_token(call["channel_name"])
-    return {"success": True, "call": call, "role": role, "agora": agora}
+    wallet = await wallet_service.get_wallet(user["user_id"])
+    return {
+        "success": True,
+        "call": call,
+        "role": role,
+        "agora": agora,
+        "balance": wallet.get("balance", 0),
+        "earnings_balance": wallet.get("earnings_balance", 0),
+    }
 
 
 @router.get("/history")

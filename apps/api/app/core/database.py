@@ -56,6 +56,9 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.platform_commissions.create_index([("type", 1), ("created_at", -1)])
     await db.platform_commissions.create_index([("user_id", 1), ("created_at", -1)])
     await db.platform_commissions.create_index("order_id", sparse=True)
+    await db.platform_commissions.create_index(
+        [("source_id", 1), ("type", 1), ("minute", 1)], sparse=True
+    )
     await db.push_tokens.create_index("user_id", unique=True)
     await db.follows.create_index([("follower_id", 1), ("creator_id", 1)], unique=True)
     await db.follows.create_index("creator_id")

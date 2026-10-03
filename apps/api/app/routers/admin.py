@@ -878,19 +878,26 @@ async def financial_commissions(
 
 
 @router.get("/financial/recharge-commissions")
-async def recharge_commissions(admin: dict = Depends(require_admin), limit: int = 100):
-    """Platform commission ledger from recharges (its own collection)."""
+async def recharge_commissions(
+    admin: dict = Depends(require_admin),
+    limit: int = 100,
+    type: str | None = None,
+):
+    """Platform commission ledger from recharges (and optionally all types)."""
     db = get_db()
     limit = min(max(limit, 1), 200)
+    match: dict = {}
+    if type:
+        match["type"] = type
     items = (
-        await db.platform_commissions.find({}, {"_id": 0})
+        await db.platform_commissions.find(match, {"_id": 0})
         .sort("created_at", -1)
         .limit(limit)
         .to_list(limit)
     )
     total_rows = await db.platform_commissions.aggregate(
         [
-            {"$match": {"type": "RECHARGE_COMMISSION"}},
+            {"$match": match},
             {
                 "$group": {
                     "_id": None,

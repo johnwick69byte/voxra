@@ -5,10 +5,9 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  TextInput,
   ScrollView,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as LinkingExpo from "expo-linking";
@@ -21,7 +20,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import { walletAPI, withdrawalAPI } from "../../src/services/api";
+import { walletAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText } from "../../src/components/ui";
@@ -34,19 +33,15 @@ const TX_FILTERS = ["ALL", "RECHARGE", "CALL", "GIFT", "WITHDRAW"] as const;
 
 export default function WalletScreen() {
   const user = useAuthStore((s) => s.user);
+  const router = useRouter();
   const isCreator = user?.user_type === "creator";
   const [balance, setBalance] = useState(0);
   const [earnings, setEarnings] = useState(0);
   const [txs, setTxs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [successFlash, setSuccessFlash] = useState(false);
   const [txFilter, setTxFilter] = useState<(typeof TX_FILTERS)[number]>("ALL");
-  const [withdrawAmt, setWithdrawAmt] = useState("");
-  const [upi, setUpi] = useState("");
-  const [accountName, setAccountName] = useState("");
-  const [increaseAmt, setIncreaseAmt] = useState("");
   const scale = useSharedValue(1);
   const prevBalance = useRef(0);
 
@@ -152,60 +147,6 @@ export default function WalletScreen() {
     }
   };
 
-  const withdraw = async () => {
-    const amount = Number(withdrawAmt);
-    if (!amount || amount < 100) {
-      Toast.show({ type: "error", text1: "Minimum withdrawal ₹100" });
-      return;
-    }
-    if (!upi.trim() || !upi.includes("@")) {
-      Toast.show({ type: "error", text1: "Enter a valid UPI ID" });
-      return;
-    }
-    if (accountName.trim().length < 2) {
-      Toast.show({ type: "error", text1: "Enter the account name" });
-      return;
-    }
-    setLoading(true);
-    try {
-      await walletAPI.withdraw(amount, upi.trim(), accountName.trim());
-      Toast.show({ type: "success", text1: "Withdrawal requested" });
-      setWithdrawAmt("");
-      setAccountName("");
-      await load();
-    } catch (e: any) {
-      Toast.show({
-        type: "error",
-        text1: "Withdraw failed",
-        text2: e?.response?.data?.detail || e.message,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const requestIncrease = async () => {
-    const amount = Number(increaseAmt);
-    if (!amount || amount <= 25000) {
-      Toast.show({ type: "error", text1: "Must be greater than ₹25,000" });
-      return;
-    }
-    setLoading(true);
-    try {
-      await withdrawalAPI.requestIncrease(amount);
-      Toast.show({ type: "success", text1: "Request submitted" });
-      setIncreaseAmt("");
-    } catch (e: any) {
-      Toast.show({
-        type: "error",
-        text1: "Could not submit",
-        text2: e?.response?.data?.detail || e.message,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const Header = (
     <View>
       <Animated.View entering={FadeInDown.duration(380)}>
@@ -222,48 +163,12 @@ export default function WalletScreen() {
           <AppText style={styles.earnLabel}>Creator earnings</AppText>
           <AppText style={styles.earnBal}>₹{earnings.toFixed(2)}</AppText>
           <AppText style={styles.commissionHint}>
-            After ~15% platform commission on calls & gifts
+            85% of calls & gifts after the 15% platform fee
           </AppText>
-          <AppText variant="label" style={styles.earnSectionLabel}>
-            Withdraw to UPI
-          </AppText>
-          <TextInput
-            style={styles.wdInput}
-            placeholder="Amount"
-            placeholderTextColor="rgba(255,255,255,0.45)"
-            keyboardType="number-pad"
-            value={withdrawAmt}
-            onChangeText={setWithdrawAmt}
-          />
-          <TextInput
-            style={styles.wdInput}
-            placeholder="Account name"
-            placeholderTextColor="rgba(255,255,255,0.45)"
-            value={accountName}
-            onChangeText={setAccountName}
-          />
-          <TextInput
-            style={styles.wdInput}
-            placeholder="name@upi"
-            placeholderTextColor="rgba(255,255,255,0.45)"
-            autoCapitalize="none"
-            value={upi}
-            onChangeText={setUpi}
-          />
-          <PrimaryButton label="Request withdrawal" onPress={withdraw} loading={loading} style={{ marginTop: 10 }} />
-          <TextInput
-            style={styles.wdInput}
-            placeholder="Increase limit to (₹, min 25000+)"
-            placeholderTextColor="rgba(255,255,255,0.45)"
-            keyboardType="number-pad"
-            value={increaseAmt}
-            onChangeText={setIncreaseAmt}
-          />
           <PrimaryButton
-            label="Request limit increase"
-            variant="ghost"
-            onPress={requestIncrease}
-            style={{ marginTop: 8 }}
+            label="Withdraw to bank / UPI"
+            onPress={() => router.push("/withdraw")}
+            style={{ marginTop: 14 }}
           />
         </Animated.View>
       ) : earnings > 0 ? (
@@ -388,17 +293,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontFamily: theme.font.body,
     fontSize: 12,
-  },
-  earnSectionLabel: { marginTop: 14, color: "rgba(255,255,255,0.65)" },
-  wdInput: {
-    marginTop: 8,
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 14,
-    color: theme.colors.text,
-    fontFamily: theme.font.body,
   },
   section: { paddingHorizontal: 24, marginTop: 18, marginBottom: 10 },
   rechargeCard: {

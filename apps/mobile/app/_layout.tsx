@@ -220,6 +220,7 @@ export default function RootLayout() {
         <Stack.Screen name="notifications" />
         <Stack.Screen name="support" />
         <Stack.Screen name="earnings" />
+        <Stack.Screen name="withdraw" />
         <Stack.Screen name="reviews" />
         <Stack.Screen name="privacy" />
         <Stack.Screen name="terms" />

@@ -173,33 +173,20 @@ async def process_order_success(order_id: str, *, verified_amount: Optional[floa
     await wallet_service.credit_balance(user_id, splits["credit_amount"])
 
     # 2. Credit the platform wallet and log the commission in its own collection.
-    await db.platform_wallet.update_one(
-        {"platform_id": PLATFORM_WALLET_ID},
-        {
-            "$inc": {"balance": splits["total_commission"]},
-            "$set": {"updated_at": now},
-            "$setOnInsert": {
-                "platform_id": PLATFORM_WALLET_ID,
-                "currency": "INR",
-                "created_at": now,
-            },
-        },
-        upsert=True,
-    )
-    await db.platform_commissions.insert_one(
-        {
-            "commission_id": f"pcom_{uuid.uuid4().hex[:14]}",
-            "type": "RECHARGE_COMMISSION",
-            "amount": splits["total_commission"],
-            "user_id": user_id,
+    await wallet_service.add_platform_balance(splits["total_commission"])
+    await wallet_service.record_platform_commission(
+        commission_type="RECHARGE_COMMISSION",
+        amount=splits["total_commission"],
+        source_id=order_id,
+        user_id=user_id,
+        gross_amount=splits["original_amount"],
+        model_earnings=splits["credit_amount"],
+        metadata={
             "order_id": order_id,
             "transaction_id": claimed["transaction_id"],
-            "original_amount": splits["original_amount"],
-            "credit_amount": splits["credit_amount"],
             "gateway_commission": splits["gateway_commission"],
             "service_commission": splits["service_commission"],
-            "created_at": now,
-        }
+        },
     )
 
     # 3. Mark the recharge transaction as SUCCESS.

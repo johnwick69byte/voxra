@@ -361,33 +361,66 @@ async def verify_pending(request: Request, user: dict = Depends(require_user)):
 
 @router.post("/withdraw")
 async def withdraw(body: WithdrawalRequest, user: dict = Depends(require_creator)):
-    if body.amount < 100:
-        raise HTTPException(400, "Minimum withdrawal ₹100")
+    MIN_WITHDRAW = 250.0
+    MAX_WITHDRAW = 25000.0
+    if body.amount < MIN_WITHDRAW:
+        raise HTTPException(400, f"Minimum withdrawal ₹{MIN_WITHDRAW:.0f}")
+    if body.amount > MAX_WITHDRAW:
+        raise HTTPException(400, f"Maximum withdrawal ₹{MAX_WITHDRAW:.0f}")
+
+    upi = (body.upi_id or "").strip()
+    if not upi or "@" not in upi:
+        raise HTTPException(400, "Enter a valid UPI ID (name@bank)")
+    bank = body.bank_details
+    if not bank or not all(
+        [bank.bank_name, bank.account_number, bank.ifsc_code, bank.account_holder_name]
+    ):
+        raise HTTPException(
+            400, "Complete bank details (bank name, account number, IFSC, account holder) are required"
+        )
+
+    db = get_db()
+    profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    max_requests = int((profile or {}).get("max_withdraw_requests", 2) or 2)
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_count = await db.withdrawal_requests.count_documents(
+        {"user_id": user["user_id"], "created_at": {"$gte": today_start}}
+    )
+    if today_count >= max_requests:
+        raise HTTPException(
+            400, f"You can make {max_requests} withdrawal request(s) per day. Limit reached."
+        )
+
     wallet = await wallet_service.get_wallet(user["user_id"])
     if wallet.get("earnings_balance", 0) < body.amount:
         raise HTTPException(402, "Insufficient earnings balance")
-    db = get_db()
-    # Hold funds
+
+    # Hold funds atomically from earnings_balance only.
     updated = await db.wallets.find_one_and_update(
         {"user_id": user["user_id"], "earnings_balance": {"$gte": body.amount}},
         {
             "$inc": {"earnings_balance": -body.amount},
-            "$set": {"updated_at": datetime.now(timezone.utc)},
+            "$set": {"updated_at": now},
         },
         return_document=True,
     )
     if not updated:
         raise HTTPException(402, "Insufficient earnings balance")
-    req_id = f"wd_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{user['user_id'][-6:]}"
+
+    req_id = f"wd_{uuid.uuid4().hex[:12]}"
+    bank_dict = bank.model_dump()
     await db.withdrawal_requests.insert_one(
         {
             "request_id": req_id,
             "user_id": user["user_id"],
             "amount": body.amount,
-            "upi_id": body.upi_id,
+            "withdrawal_method": "BANK_AND_UPI",
+            "upi_id": upi,
+            "bank_details": bank_dict,
             "account_name": body.account_name,
             "status": "PENDING",
-            "created_at": datetime.now(timezone.utc),
+            "created_at": now,
         }
     )
     await wallet_service.insert_transaction(
@@ -395,10 +428,43 @@ async def withdraw(body: WithdrawalRequest, user: dict = Depends(require_creator
         tx_type="WITHDRAW_HOLD",
         amount=body.amount,
         description="Withdrawal requested",
-        metadata={"request_id": req_id, "upi_id": body.upi_id},
+        metadata={"request_id": req_id, "upi_id": upi},
         transaction_id=f"tx_withdraw_{req_id}",
     )
-    return {"success": True, "request_id": req_id}
+    # Save payout details on the profile for next-time prefill.
+    await db.creator_profiles.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"upi_id": upi, "bank_details": bank_dict}},
+        upsert=True,
+    )
+    return {
+        "success": True,
+        "request_id": req_id,
+        "requests_today": today_count + 1,
+        "max_requests_per_day": max_requests,
+    }
+
+
+@router.get("/withdrawal/profile")
+async def withdrawal_profile(user: dict = Depends(require_creator)):
+    """Saved payout details + limits, to prefill the withdrawal screen."""
+    db = get_db()
+    profile = await db.creator_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    wallet = await wallet_service.get_wallet(user["user_id"])
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_count = await db.withdrawal_requests.count_documents(
+        {"user_id": user["user_id"], "created_at": {"$gte": today_start}}
+    )
+    return {
+        "success": True,
+        "earnings_balance": wallet.get("earnings_balance", 0),
+        "upi_id": (profile or {}).get("upi_id"),
+        "bank_details": (profile or {}).get("bank_details"),
+        "max_withdraw_amount": (profile or {}).get("max_withdraw_amount", 25000),
+        "max_requests_per_day": int((profile or {}).get("max_withdraw_requests", 2) or 2),
+        "requests_today": today_count,
+    }
 
 
 @router.get("/withdrawal/requests")

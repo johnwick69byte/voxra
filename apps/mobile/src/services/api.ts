@@ -85,7 +85,19 @@ export const earningsAPI = {
 };
 
 export const withdrawalAPI = {
+  profile: () => api.get("/wallet/withdrawal/profile"),
   requests: () => api.get("/withdrawal/requests"),
+  submit: (payload: {
+    amount: number;
+    upi_id: string;
+    account_name?: string;
+    bank_details: {
+      bank_name: string;
+      account_number: string;
+      ifsc_code: string;
+      account_holder_name: string;
+    };
+  }) => api.post("/wallet/withdraw", payload),
   requestIncrease: (requested_max_amount: number, reason?: string) =>
     api.post("/withdrawal/request-increase", { requested_max_amount, reason }),
 };

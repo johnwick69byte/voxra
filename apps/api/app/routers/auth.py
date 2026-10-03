@@ -18,6 +18,7 @@ from app.models.schemas import (
 )
 from app.services import imagekit_service
 from app.services import auth_service
+from app.core.config import get_settings
 from app.core.database import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -167,7 +168,10 @@ async def update_profile(body: UpdateProfileRequest, user: dict = Depends(requir
             raise HTTPException(400, "Name must be at least 2 characters")
         updates["name"] = name
     if body.picture is not None:
-        updates["picture"] = body.picture
+        picture = body.picture
+        if picture.startswith("data:"):
+            picture = await imagekit_service.upload_base64_image(picture, folder="avatars")
+        updates["picture"] = picture
     if body.username is not None:
         username = body.username.strip().lower()
         if username:
@@ -175,14 +179,42 @@ async def update_profile(body: UpdateProfileRequest, user: dict = Depends(requir
             if exists:
                 raise HTTPException(409, "Username taken")
             updates["username"] = username
-    if body.bio is not None and user.get("user_type") == "creator":
-        await db.creator_profiles.update_one(
-            {"user_id": user["user_id"]},
-            {"$set": {"bio": body.bio.strip()}},
-            upsert=True,
-        )
     if len(updates) > 1:
         await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
+
+    # Creator profile fields (bio, category, languages, rates)
+    if user.get("user_type") == "creator":
+        settings = get_settings()
+        cprofile: dict = {}
+        if body.bio is not None:
+            cprofile["bio"] = body.bio.strip()
+        if body.category is not None:
+            if body.category not in CATEGORIES:
+                raise HTTPException(400, "Select a valid category")
+            cprofile["category"] = body.category
+        if body.languages is not None:
+            if not body.languages or any(lang not in LANGUAGES for lang in body.languages):
+                raise HTTPException(400, "Select at least one language")
+            cprofile["languages"] = body.languages
+        if body.gender is not None and body.gender in GENDERS:
+            cprofile["gender"] = body.gender
+        if body.famous_profile_link is not None:
+            cprofile["famous_profile_link"] = body.famous_profile_link.strip()
+        if body.audio_rate_per_minute is not None:
+            if body.audio_rate_per_minute < settings.min_audio_rate:
+                raise HTTPException(400, f"Minimum audio ₹{settings.min_audio_rate:.0f}/min")
+            cprofile["audio_rate_per_minute"] = float(body.audio_rate_per_minute)
+        if body.video_rate_per_minute is not None:
+            if body.video_rate_per_minute < settings.min_video_rate:
+                raise HTTPException(400, f"Minimum video ₹{settings.min_video_rate:.0f}/min")
+            cprofile["video_rate_per_minute"] = float(body.video_rate_per_minute)
+        if body.instant_call_enabled is not None:
+            cprofile["instant_call_enabled"] = body.instant_call_enabled
+        if cprofile:
+            await db.creator_profiles.update_one(
+                {"user_id": user["user_id"]}, {"$set": cprofile}, upsert=True
+            )
+
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     profile = None
     if updated and updated.get("user_type") == "creator":

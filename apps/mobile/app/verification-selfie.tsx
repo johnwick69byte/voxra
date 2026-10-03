@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { View, StyleSheet, Image, ActivityIndicator, Pressable } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
@@ -88,7 +89,7 @@ export default function VerificationSelfie() {
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 16) }]}>
       <Pressable onPress={() => router.replace("/creator-photos")} style={styles.back}>
-        <AppText color={theme.colors.text}>Back</AppText>
+        <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
       </Pressable>
       <AppText variant="caption" color={theme.colors.accent} style={{ marginTop: 10 }}>
         Selfie · 4 of 4
@@ -141,10 +142,14 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: theme.colors.background, alignItems: "center", justifyContent: "center" },
   back: {
     alignSelf: "flex-start",
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    width: 40,
+    height: 40,
     borderRadius: 20,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
   },
   stage: { flex: 1, borderRadius: 24, overflow: "hidden", backgroundColor: "#000", minHeight: 320 },
   preview: { flex: 1 },

@@ -10,9 +10,8 @@ import {
   ScrollView,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
-import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
-import { creatorsAPI, callsAPI, walletAPI, authAPI } from "../../src/services/api";
+import Animated, { FadeIn } from "react-native-reanimated";
+import { creatorsAPI, walletAPI, authAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
 import { StatusDot } from "../../src/components/StatusDot";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
@@ -62,26 +61,6 @@ export default function BrowseScreen() {
   }, [query]);
 
   const loadPage = async (reset = false) => {
-    if (isCreator) {
-      setRefreshing(true);
-      try {
-        const [bal, hist, me] = await Promise.all([
-          walletAPI.balance(),
-          callsAPI.history(),
-          authAPI.me(),
-        ]);
-        setEarnings(bal.data.earnings_balance || 0);
-        setCreators(hist.data.calls || []);
-        setDnd(!!me.data?.creator_profile?.is_dnd);
-      } catch (e: any) {
-        Toast.show({ type: "error", text1: "Could not load", text2: e.message });
-      } finally {
-        setRefreshing(false);
-        setInitial(false);
-      }
-      return;
-    }
-
     if (reset) setRefreshing(true);
     else {
       if (!hasMore || loadingMore) return;
@@ -95,6 +74,8 @@ export default function BrowseScreen() {
         q: debouncedQ || undefined,
       });
       let page = res.data.creators || [];
+      // Never show yourself in the browse list
+      page = page.filter((c: any) => c.user_id !== user?.user_id);
       if (statusFilter !== "ALL") {
         page = page.filter((c: any) => c.status === statusFilter);
       }
@@ -110,84 +91,56 @@ export default function BrowseScreen() {
     }
   };
 
+  const loadCreatorBanner = async () => {
+    try {
+      const [bal, me] = await Promise.all([walletAPI.balance(), authAPI.me()]);
+      setEarnings(bal.data.earnings_balance || 0);
+      setDnd(!!me.data?.creator_profile?.is_dnd);
+    } catch {
+      /* banner is non-critical */
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       setCursor(null);
       loadPage(true);
+      if (isCreator) loadCreatorBanner();
     }, [isCreator, sort, debouncedQ, statusFilter])
   );
 
-  if (isCreator) {
-    const spark = [0.35, 0.55, 0.4, 0.7, 0.5, 0.85, Math.min(1, earnings / Math.max(earnings, 500) || 0.6)];
-    return (
-      <View style={styles.wrap}>
-        <LinearGradient colors={[...theme.gradients.soft]} style={styles.header}>
-          <AppText style={styles.brandDisplay}>{APP_NAME}</AppText>
-          <AppText variant="subtitle" style={{ marginTop: 8 }}>
-            Hi {user?.name || "Creator"}
-          </AppText>
-          <Animated.View entering={FadeInDown.duration(400)}>
-            <AppText style={styles.earn}>₹{earnings.toFixed(0)}</AppText>
-            <AppText variant="caption">Creator earnings (after ~15% fee)</AppText>
-            <View style={styles.sparkRow}>
-              {spark.map((h, i) => (
-                <View key={i} style={[styles.sparkBar, { height: 8 + h * 28 }]} />
-              ))}
+  return (
+    <View style={styles.wrap}>
+      <View style={[styles.headerLite, isCreator && styles.headerLiteCreator]}>
+        <AppText style={styles.brandDisplay}>{APP_NAME}</AppText>
+        {isCreator ? (
+          <View style={styles.creatorBanner}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="caption">Creator earnings (after ~15% fee)</AppText>
+              <AppText style={styles.earnSmall}>₹{earnings.toFixed(0)}</AppText>
             </View>
-          </Animated.View>
-          <View style={styles.dndWrap}>
             <PrimaryButton
-              label={dnd ? "You're on DND" : "You're Available"}
+              label={dnd ? "DND on" : "Available"}
               onPress={async () => {
                 const res = await creatorsAPI.toggleDnd();
                 setDnd(res.data.is_dnd);
                 Toast.show({
                   type: "success",
-                  text1: res.data.is_dnd ? "DND on" : "You're available — followers notified",
+                  text1: res.data.is_dnd ? "DND on" : "You're available",
                 });
               }}
               style={{
-                marginTop: 16,
+                minWidth: 120,
+                height: 44,
                 backgroundColor: dnd ? theme.colors.dnd : theme.colors.brand,
               }}
             />
           </View>
-        </LinearGradient>
-        <AppText variant="label" style={{ paddingHorizontal: 16, marginTop: 8 }}>
-          Recent calls
-        </AppText>
-        <FlatList
-          data={creators}
-          keyExtractor={(item) => item.call_id}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadPage(true)} />}
-          contentContainerStyle={{ padding: 16 }}
-          ListEmptyComponent={
-            <EmptyState title="No calls yet" subtitle="Stay online to receive instant calls." />
-          }
-          renderItem={({ item, index }) => (
-            <Animated.View entering={FadeIn.delay(Math.min(index * 40, 200)).duration(theme.motion.statusFade)}>
-              <View style={styles.callRow}>
-                <AppText style={styles.callTitle}>
-                  {item.call_type} · {item.status}
-                </AppText>
-                <AppText variant="caption">
-                  ₹{(item.total_amount || 0).toFixed(0)} · {item.duration_seconds || 0}s
-                </AppText>
-              </View>
-            </Animated.View>
-          )}
-        />
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.wrap}>
-      <View style={styles.headerLite}>
-        <AppText style={styles.brandDisplay}>{APP_NAME}</AppText>
-        <AppText variant="subtitle" style={{ marginTop: 4 }}>
-          Creators ready for instant calls
-        </AppText>
+        ) : (
+          <AppText variant="subtitle" style={{ marginTop: 4 }}>
+            Creators ready for instant calls
+          </AppText>
+        )}
         <TextInput
           style={styles.search}
           placeholder="Search creators"
@@ -273,8 +226,25 @@ export default function BrowseScreen() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: theme.colors.background },
-  header: { paddingTop: 64, paddingHorizontal: 24, paddingBottom: 28 },
   headerLite: { paddingTop: 64, paddingHorizontal: 24, paddingBottom: 8 },
+  headerLiteCreator: { paddingTop: 60 },
+  creatorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 14,
+    padding: 16,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.backgroundElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  earnSmall: {
+    fontFamily: theme.font.display,
+    fontSize: 26,
+    color: theme.colors.text,
+    marginTop: 2,
+  },
   brandDisplay: {
     fontFamily: theme.font.display,
     fontSize: 36,
@@ -304,8 +274,10 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.surface,
     marginRight: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  chipOn: { backgroundColor: theme.colors.brand },
+  chipOn: { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand },
   chipText: { fontFamily: theme.font.bodySemi, color: theme.colors.textSecondary, fontSize: 13 },
   chipTextOn: { color: theme.colors.onBrand },
   row: { flexDirection: "row", gap: 14, alignItems: "center" },
@@ -337,18 +309,4 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
   },
   callTitle: { fontFamily: theme.font.bodyBold, color: theme.colors.text },
-  dndWrap: { marginTop: 4 },
-  sparkRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 6,
-    marginTop: 14,
-    height: 40,
-  },
-  sparkBar: {
-    width: 10,
-    borderRadius: 4,
-    backgroundColor: theme.colors.brandLight,
-    opacity: 0.85,
-  },
 });

@@ -41,7 +41,7 @@ export function OnboardingChrome({
               {STEP_NAMES[step - 1] || "Step"} · {step} of {total}
             </AppText>
           ) : null}
-          <AppText variant="title" style={{ marginTop: step ? 2 : 0 }}>
+          <AppText style={styles.title} variant="title">
             {title}
           </AppText>
         </View>
@@ -82,6 +82,7 @@ const styles = StyleSheet.create({
   track: { flexDirection: "row", gap: 6, marginTop: 16 },
   bar: { flex: 1, height: 4, borderRadius: 4, backgroundColor: theme.colors.surface },
   barOn: { backgroundColor: theme.colors.brandLight },
+  title: { marginTop: 2 },
   sub: { marginTop: 10, lineHeight: 22 },
   body: { flex: 1, marginTop: 8 },
   footer: {

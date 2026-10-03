@@ -75,32 +75,37 @@ export default function CreatorPhotos() {
         <ActivityIndicator color={theme.colors.brand} style={{ marginTop: 32 }} />
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-          <AppText variant="caption" color={theme.colors.textMuted} style={{ marginTop: 8 }}>
-            {images.length} of 6 · at least 1 required
-          </AppText>
-          {!images.length ? (
-            <AppText style={{ marginTop: 8, lineHeight: 22 }}>
-              Use a clear photo of you. Fans see these on your profile before they call.
+          <View style={styles.card}>
+            <AppText variant="caption" color={theme.colors.textMuted}>
+              {images.length} of 6 · at least 1 required
             </AppText>
-          ) : null}
-          <View style={styles.grid}>
-            {images.map((url) => (
-              <View key={url} style={styles.tile}>
-                <Image source={{ uri: url }} style={styles.photo} />
-                <Pressable style={styles.remove} onPress={() => remove(url)}>
-                  <AppText color="#fff">Remove</AppText>
-                </Pressable>
-              </View>
-            ))}
-            {images.length < 6 ? (
-              <Pressable style={[styles.tile, styles.add]} onPress={pick} disabled={uploading}>
-                {uploading ? (
-                  <ActivityIndicator color={theme.colors.brandLight} />
-                ) : (
-                  <AppText color={theme.colors.brandLight}>Add photo</AppText>
-                )}
-              </Pressable>
+            {!images.length ? (
+              <AppText style={{ marginTop: 8, lineHeight: 22 }}>
+                Use a clear photo of you. Fans see these on your profile before they call.
+              </AppText>
             ) : null}
+            <View style={styles.grid}>
+              {images.map((url) => (
+                <View key={url} style={styles.tile}>
+                  <Image source={{ uri: url }} style={styles.photo} />
+                  <Pressable style={styles.remove} onPress={() => remove(url)}>
+                    <AppText color="#fff">Remove</AppText>
+                  </Pressable>
+                </View>
+              ))}
+              {images.length < 6 ? (
+                <Pressable style={[styles.tile, styles.add]} onPress={pick} disabled={uploading}>
+                  {uploading ? (
+                    <ActivityIndicator color={theme.colors.brandLight} />
+                  ) : (
+                    <>
+                      <AppText style={styles.addPlus}>+</AppText>
+                      <AppText color={theme.colors.brandLight}>Add photo</AppText>
+                    </>
+                  )}
+                </Pressable>
+              ) : null}
+            </View>
           </View>
           <PrimaryButton label="Continue" onPress={next} style={{ marginTop: 20 }} />
         </ScrollView>
@@ -110,16 +115,32 @@ export default function CreatorPhotos() {
 }
 
 const styles = StyleSheet.create({
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 16,
+    marginTop: 12,
+  },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 16 },
   tile: {
     width: "47%",
     aspectRatio: 1,
     borderRadius: 16,
     overflow: "hidden",
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.backgroundElevated,
   },
   photo: { width: "100%", height: "100%" },
-  add: { alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.colors.border },
+  add: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderStyle: "dashed",
+    gap: 4,
+  },
+  addPlus: { fontFamily: theme.font.display, fontSize: 32, color: theme.colors.brandLight },
   remove: {
     position: "absolute",
     left: 8,

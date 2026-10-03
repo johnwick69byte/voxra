@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TextInput, StyleSheet, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
-import { creatorsAPI } from "../src/services/api";
+import { authAPI, creatorsAPI } from "../src/services/api";
 import { PrimaryButton } from "../src/components/PrimaryButton";
 import { OnboardingChrome } from "../src/components/OnboardingChrome";
 import { AppText } from "../src/components/ui";
@@ -53,10 +53,24 @@ function RateCard({
 
 export default function PricingSetup() {
   const router = useRouter();
+  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const isEdit = edit === "1";
   const [audio, setAudio] = useState("10");
   const [video, setVideo] = useState("20");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!isEdit) return;
+    authAPI
+      .me()
+      .then((res) => {
+        const p = res.data.creator_profile || {};
+        if (p.audio_rate_per_minute) setAudio(String(p.audio_rate_per_minute));
+        if (p.video_rate_per_minute) setVideo(String(p.video_rate_per_minute));
+      })
+      .catch(() => {});
+  }, [isEdit]);
 
   const save = async () => {
     const audioRate = Number(audio);
@@ -77,6 +91,11 @@ export default function PricingSetup() {
         video_rate_per_minute: videoRate,
         instant_call_enabled: true,
       });
+      if (isEdit) {
+        Toast.show({ type: "success", text1: "Rates updated" });
+        router.back();
+        return;
+      }
       if (res.data?.next_step === "home") {
         Toast.show({ type: "success", text1: "Rates updated" });
         router.replace("/(tabs)/browse");
@@ -92,10 +111,10 @@ export default function PricingSetup() {
 
   return (
     <OnboardingChrome
-      step={2}
-      title="Your call rates"
+      step={isEdit ? undefined : 2}
+      title={isEdit ? "Call rates" : "Your call rates"}
       subtitle="Instant audio and video. Fans pay this per minute."
-      onBack={() => router.replace("/(auth)/complete-profile")}
+      onBack={() => (isEdit ? router.back() : router.replace("/(auth)/complete-profile"))}
     >
       <RateCard
         title="Audio"
@@ -116,7 +135,12 @@ export default function PricingSetup() {
           {error}
         </AppText>
       ) : null}
-      <PrimaryButton label="Continue to photos" onPress={save} loading={loading} style={{ marginTop: 24 }} />
+      <PrimaryButton
+        label={isEdit ? "Save rates" : "Continue to photos"}
+        onPress={save}
+        loading={loading}
+        style={{ marginTop: 24 }}
+      />
     </OnboardingChrome>
   );
 }

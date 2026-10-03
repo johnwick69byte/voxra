@@ -136,6 +136,11 @@ export default function IncomingCallScreen() {
       </Animated.View>
       <AppText style={styles.name}>{callerName}</AppText>
       <AppText style={styles.count}>{countdown}s</AppText>
+      <View style={styles.hintRow}>
+        <AppText style={styles.hint}>
+          Swipe to answer · {callType.toLowerCase()} call
+        </AppText>
+      </View>
       <View style={styles.actions}>
         <PrimaryButton label="Decline" variant="danger" onPress={decline} loading={busy} style={{ flex: 1 }} />
         <PrimaryButton
@@ -181,6 +186,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontFamily: theme.font.bodySemi,
   },
+  hintRow: { marginTop: 10 },
+  hint: { color: "rgba(247,244,239,0.55)", fontFamily: theme.font.body, fontSize: 13 },
   actions: {
     flexDirection: "row",
     gap: 16,

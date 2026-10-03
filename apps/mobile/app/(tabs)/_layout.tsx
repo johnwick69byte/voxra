@@ -1,37 +1,27 @@
-import { Pressable, StyleSheet, Platform } from "react-native";
+import { StyleSheet, Platform, View, ColorValue } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from "react-native-reanimated";
-import { theme } from "../../src/theme/tokens";
 import { useEffect } from "react";
 import { useRouter } from "expo-router";
 import { useAuthStore } from "../../src/store/authStore";
 import { creatorsAPI } from "../../src/services/api";
 import { useNotificationsStore } from "../../src/store/notificationsStore";
+import { theme } from "../../src/theme/tokens";
 
-function ScaleTabButton(props: any) {
-  const scale = useSharedValue(1);
-  const style = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+function TabIcon({
+  name,
+  color,
+  focused,
+}: {
+  name: keyof typeof Ionicons.glyphMap;
+  color: ColorValue;
+  focused: boolean;
+}) {
   return (
-    <Pressable
-      {...props}
-      onPressIn={() => {
-        scale.value = withSpring(0.88, { damping: 14 });
-      }}
-      onPressOut={() => {
-        scale.value = withSpring(1, { damping: 12 });
-      }}
-      style={[styles.tabBtn, props.style]}
-    >
-      <Animated.View style={style}>{props.children}</Animated.View>
-    </Pressable>
+    <View style={[styles.iconWrap, focused && styles.iconWrapOn]}>
+      <Ionicons name={name} size={22} color={color as string} />
+    </View>
   );
 }
 
@@ -63,9 +53,10 @@ export default function TabsLayout() {
       if (href) router.replace(href as never);
     });
   }, [isCreator, userId]);
+
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 16 : 8);
-  const tabBarHeight = 52 + bottomInset;
+  const tabBarHeight = 64 + bottomInset;
 
   return (
     <Tabs
@@ -79,22 +70,33 @@ export default function TabsLayout() {
           borderTopColor: theme.colors.border,
           borderTopWidth: 1,
           height: tabBarHeight,
-          paddingTop: 6,
+          paddingTop: 8,
           paddingBottom: bottomInset,
+          paddingHorizontal: 6,
         },
         tabBarLabelStyle: {
           fontFamily: theme.font.bodySemi,
           fontSize: 11,
+          marginTop: 2,
         },
-        tabBarButton: (props) => <ScaleTabButton {...props} />,
+        tabBarItemStyle: { paddingVertical: 2 },
       }}
     >
       <Tabs.Screen
         name="browse"
         options={{
           title: isCreator ? "Home" : "Browse",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name={isCreator ? "home" : "compass"} size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name={isCreator ? "home" : "compass"} color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="favorites"
+        options={{
+          title: isCreator ? "Saved" : "Favorites",
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="heart" color={color} focused={focused} />
           ),
         }}
       />
@@ -102,22 +104,27 @@ export default function TabsLayout() {
         name="following"
         options={{
           title: isCreator ? "Calls" : "Following",
-          href: isCreator ? null : undefined,
-          tabBarIcon: ({ color, size }) => <Ionicons name="heart" size={size} color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="people" color={color} focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="referral"
         options={{
           title: "Refer",
-          tabBarIcon: ({ color, size }) => <Ionicons name="gift" size={size} color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="gift" color={color} focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="wallet"
         options={{
           title: "Wallet",
-          tabBarIcon: ({ color, size }) => <Ionicons name="wallet" size={size} color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="wallet" color={color} focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -126,7 +133,9 @@ export default function TabsLayout() {
           title: "Profile",
           tabBarBadge: unread > 0 ? unread : undefined,
           tabBarBadgeStyle: { backgroundColor: theme.colors.brand, fontSize: 10 },
-          tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="person" color={color} focused={focused} />
+          ),
         }}
       />
     </Tabs>
@@ -134,5 +143,12 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  tabBtn: { flex: 1, alignItems: "center", justifyContent: "center" },
+  iconWrap: {
+    width: 48,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconWrapOn: { backgroundColor: "rgba(45,212,191,0.14)" },
 });

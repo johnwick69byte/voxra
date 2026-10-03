@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, FlatList, StyleSheet, Pressable } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { View, FlatList, StyleSheet } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import { reviewsAPI } from "../src/services/api";
-import { AppText, EmptyState } from "../src/components/ui";
+import { AppText, EmptyState, ScreenHeader } from "../src/components/ui";
 import { theme } from "../src/theme/tokens";
 
 export default function ReviewsScreen() {
-  const router = useRouter();
   const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
   const [reviews, setReviews] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
@@ -31,15 +29,7 @@ export default function ReviewsScreen() {
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
-        </Pressable>
-        <View>
-          <AppText style={styles.title}>Reviews</AppText>
-          {name ? <AppText variant="caption">{name}</AppText> : null}
-        </View>
-      </View>
+      <ScreenHeader title="Reviews" subtitle={name || undefined} />
 
       {stats ? (
         <View style={styles.stats}>
@@ -51,15 +41,15 @@ export default function ReviewsScreen() {
       <FlatList
         data={reviews}
         keyExtractor={(r, i) => String(r.review_id || r.call_id || i)}
-        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 8 }}
         ListEmptyComponent={<EmptyState title="No reviews yet" subtitle="Be the first to review." />}
         renderItem={({ item }) => (
           <View style={styles.row}>
             <AppText style={styles.stars}>{"★".repeat(item.rating || 0)}</AppText>
-            <AppText variant="caption" style={{ marginTop: 4 }}>
+            <AppText variant="caption" style={{ marginTop: 4, lineHeight: 20 }}>
               {item.comment || "No comment"}
             </AppText>
-            <AppText variant="caption" color={theme.colors.textMuted} style={{ marginTop: 6 }}>
+            <AppText variant="caption" color={theme.colors.textMuted} style={{ marginTop: 8 }}>
               {item.reviewer_name || "Anonymous"}
             </AppText>
           </View>
@@ -70,26 +60,21 @@ export default function ReviewsScreen() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 56 },
-  header: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16 },
-  back: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.colors.backgroundElevated,
-    alignItems: "center",
-    justifyContent: "center",
+  wrap: { flex: 1, backgroundColor: theme.colors.background },
+  stats: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 16,
   },
-  title: { fontFamily: theme.font.display, fontSize: 28, color: theme.colors.brand },
-  stats: { paddingHorizontal: 20, marginTop: 8, flexDirection: "row", alignItems: "baseline", gap: 10 },
-  avg: { fontFamily: theme.font.display, fontSize: 26, color: theme.colors.accentDeep },
+  avg: { fontFamily: theme.font.display, fontSize: 28, color: theme.colors.accentDeep },
   row: {
-    backgroundColor: theme.colors.backgroundElevated,
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 8,
+    backgroundColor: theme.colors.surface,
+    padding: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
-  stars: { color: theme.colors.accent },
+  stars: { color: theme.colors.accent, fontSize: 16 },
 });

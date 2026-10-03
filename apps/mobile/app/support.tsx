@@ -1,15 +1,13 @@
 import { useCallback, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
+import { useFocusEffect } from "expo-router";
 import { appAPI } from "../src/services/api";
 import { PrimaryButton } from "../src/components/PrimaryButton";
-import { AppText, Input } from "../src/components/ui";
+import { AppText, Input, ScreenHeader } from "../src/components/ui";
 import { theme } from "../src/theme/tokens";
 
 export default function SupportScreen() {
-  const router = useRouter();
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -54,88 +52,93 @@ export default function SupportScreen() {
   };
 
   return (
-    <ScrollView
-      style={styles.wrap}
-      contentContainerStyle={{ paddingBottom: 40 }}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
-        </Pressable>
-        <AppText style={styles.title}>Support</AppText>
-      </View>
-      <AppText variant="subtitle" style={styles.sub}>
-        Send us a problem or a question. You can also email gambiraojas6@gmail.com.
-      </AppText>
-      <Input label="Subject" value={subject} onChangeText={setSubject} placeholder="How can we help?" />
-      <Input
-        label="Message"
-        value={message}
-        onChangeText={setMessage}
-        placeholder="Describe the issue"
-        multiline
-        style={{ height: 120, textAlignVertical: "top", paddingTop: 12 }}
-      />
-      <PrimaryButton label="Send to support" onPress={submit} loading={loading} style={{ marginTop: 16 }} />
+    <View style={styles.wrap}>
+      <ScreenHeader title="Help & support" />
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        <AppText variant="subtitle" style={{ marginBottom: 8 }}>
+          Send us a problem or a question. You can also email gambiraojas6@gmail.com.
+        </AppText>
 
-      {history.length > 0 ? (
-        <View style={{ marginTop: 28 }}>
-          <AppText variant="label" style={styles.histLabel}>
-            Your messages
-          </AppText>
-          {history.map((m) => (
-            <View key={m.message_id} style={styles.msgCard}>
-              <AppText style={styles.msgSubject}>{m.subject}</AppText>
-              <AppText variant="caption" style={{ marginTop: 4 }}>
-                {m.message}
-              </AppText>
-              {m.reply ? (
-                <View style={styles.reply}>
-                  <AppText variant="caption" color={theme.colors.brandLight}>
-                    Support replied:
-                  </AppText>
-                  <AppText variant="caption">{m.reply}</AppText>
-                </View>
-              ) : (
-                <AppText variant="caption" color={theme.colors.textMuted} style={{ marginTop: 6 }}>
-                  {String(m.status || "open").toUpperCase()}
-                </AppText>
-              )}
-            </View>
-          ))}
+        <View style={styles.card}>
+          <Input label="Subject" value={subject} onChangeText={setSubject} placeholder="How can we help?" />
+          <Input
+            label="Message"
+            value={message}
+            onChangeText={setMessage}
+            placeholder="Describe the issue"
+            multiline
+            style={{ height: 120, textAlignVertical: "top", paddingTop: 12 }}
+          />
+          <PrimaryButton label="Send to support" onPress={submit} loading={loading} style={{ marginTop: 16 }} />
         </View>
-      ) : null}
-    </ScrollView>
+
+        {history.length > 0 ? (
+          <>
+            <AppText variant="label" style={{ marginTop: 24, marginBottom: 8 }}>
+              Your messages
+            </AppText>
+            {history.map((m) => (
+              <View key={m.message_id} style={styles.msgCard}>
+                <View style={styles.msgHead}>
+                  <AppText style={styles.msgSubject}>{m.subject}</AppText>
+                  <View style={[styles.status, m.status === "replied" && styles.statusDone]}>
+                    <AppText variant="caption" color={m.status === "replied" ? theme.colors.success : theme.colors.warning}>
+                      {String(m.status || "open").toUpperCase()}
+                    </AppText>
+                  </View>
+                </View>
+                <AppText variant="caption" style={{ marginTop: 6, lineHeight: 20 }}>
+                  {m.message}
+                </AppText>
+                {m.reply ? (
+                  <View style={styles.reply}>
+                    <AppText variant="caption" color={theme.colors.brandLight}>
+                      Support replied
+                    </AppText>
+                    <AppText variant="caption" style={{ marginTop: 2, lineHeight: 20 }}>
+                      {m.reply}
+                    </AppText>
+                  </View>
+                ) : null}
+              </View>
+            ))}
+          </>
+        ) : null}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: theme.colors.background, paddingHorizontal: 24, paddingTop: 56 },
-  header: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  back: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.colors.backgroundElevated,
-    alignItems: "center",
-    justifyContent: "center",
+  wrap: { flex: 1, backgroundColor: theme.colors.background },
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 18,
+    marginTop: 8,
   },
-  title: { fontFamily: theme.font.display, fontSize: 28, color: theme.colors.brand },
-  sub: { marginBottom: 16 },
-  histLabel: { marginBottom: 8 },
   msgCard: {
-    backgroundColor: theme.colors.backgroundElevated,
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 14,
+    padding: 16,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
-  msgSubject: { fontFamily: theme.font.bodyBold, color: theme.colors.text },
+  msgHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  msgSubject: { fontFamily: theme.font.bodyBold, color: theme.colors.text, flex: 1 },
+  status: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: "rgba(217,119,6,0.12)",
+  },
+  statusDone: { backgroundColor: "rgba(34,197,94,0.12)" },
   reply: {
-    marginTop: 10,
-    paddingTop: 10,
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
   },

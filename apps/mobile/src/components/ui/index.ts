@@ -5,3 +5,4 @@ export { Card } from "./Card";
 export { Skeleton, CreatorRowSkeleton } from "./Skeleton";
 export { EmptyState, ErrorState } from "./EmptyState";
 export { Avatar } from "./Avatar";
+export { ScreenHeader } from "./ScreenHeader";

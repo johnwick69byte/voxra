@@ -10,6 +10,7 @@ import {
   Pressable,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import Toast from "react-native-toast-message";
@@ -116,6 +117,9 @@ export default function CreatorProfile() {
 
   return (
     <View style={styles.wrap}>
+      <Pressable onPress={() => router.back()} style={styles.backFab} hitSlop={8}>
+        <Ionicons name="chevron-back" size={22} color="#fff" />
+      </Pressable>
       <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
         <FlatList
           data={photos}
@@ -139,22 +143,56 @@ export default function CreatorProfile() {
         ) : null}
 
         <Animated.View entering={FadeInDown.duration(380)} style={styles.body}>
-          <AppText style={styles.name}>{creator.name}</AppText>
-          <StatusDot status={creator.status} />
+          <View style={styles.nameRow}>
+            <AppText style={styles.name}>{creator.name}</AppText>
+            <StatusDot status={creator.status} />
+          </View>
           {creator.avg_rating != null && (
-            <AppText style={styles.rating}>
-              ★ {creator.avg_rating} ({creator.review_count} reviews)
-            </AppText>
+            <View style={styles.ratingRow}>
+              <Ionicons name="star" size={16} color={theme.colors.accent} />
+              <AppText style={styles.rating}>
+                {creator.avg_rating} · {creator.review_count} reviews
+              </AppText>
+            </View>
           )}
-          <AppText variant="subtitle" style={{ marginTop: 10 }}>
+          <AppText variant="subtitle" style={{ marginTop: 12 }}>
             {creator.bio || "Instant audio & video calls."}
           </AppText>
+
           <View style={styles.rates}>
-            <AppText style={styles.rateLine}>Audio ₹{creator.audio_rate_per_minute}/min</AppText>
-            <AppText style={styles.rateLine}>Video ₹{creator.video_rate_per_minute}/min</AppText>
-            <AppText variant="caption" style={{ marginTop: 6 }}>
-              Creator receives ~85% after platform fee
-            </AppText>
+            <View style={styles.rateCard}>
+              <Ionicons name="call" size={18} color={theme.colors.brandLight} />
+              <AppText style={styles.rateVal}>₹{creator.audio_rate_per_minute}</AppText>
+              <AppText variant="caption">Audio / min</AppText>
+            </View>
+            <View style={styles.rateCard}>
+              <Ionicons name="videocam" size={18} color={theme.colors.accent} />
+              <AppText style={styles.rateVal}>₹{creator.video_rate_per_minute}</AppText>
+              <AppText variant="caption">Video / min</AppText>
+            </View>
+          </View>
+          <AppText variant="caption" style={{ marginTop: 8 }}>
+            Creator receives ~85% after the platform fee
+          </AppText>
+
+          <View style={styles.secondaryRow}>
+            <PrimaryButton
+              label={creator.is_following ? "Following" : "Follow"}
+              variant="ghost"
+              onPress={async () => {
+                if (creator.is_following) await creatorsAPI.unfollow(creator.user_id);
+                else await creatorsAPI.follow(creator.user_id);
+                const r = await creatorsAPI.get(String(id));
+                setCreator(r.data.creator);
+              }}
+              style={{ flex: 1 }}
+            />
+            <PrimaryButton
+              label={isFavorite ? "♥ Saved" : "♡ Save"}
+              variant="ghost"
+              onPress={toggleFavorite}
+              style={{ flex: 1 }}
+            />
           </View>
 
           {(creator.recent_reviews || []).length > 0 ? (
@@ -182,24 +220,6 @@ export default function CreatorProfile() {
               ))}
             </View>
           ) : null}
-
-          <PrimaryButton
-            label={creator.is_following ? "Following" : "Follow"}
-            variant="ghost"
-            onPress={async () => {
-              if (creator.is_following) await creatorsAPI.unfollow(creator.user_id);
-              else await creatorsAPI.follow(creator.user_id);
-              const r = await creatorsAPI.get(String(id));
-              setCreator(r.data.creator);
-            }}
-            style={{ marginTop: 20 }}
-          />
-          <PrimaryButton
-            label={isFavorite ? "♥ Saved" : "♡ Save to favorites"}
-            variant="ghost"
-            onPress={toggleFavorite}
-            style={{ marginTop: 10 }}
-          />
         </Animated.View>
       </ScrollView>
 
@@ -234,6 +254,20 @@ export default function CreatorProfile() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: theme.colors.background },
+  backFab: {
+    position: "absolute",
+    top: 48,
+    left: 16,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(7,13,12,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
   hero: {
     width: W,
     height: Math.min(H * 0.48, 420),
@@ -260,23 +294,40 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
   },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" },
   name: {
     fontFamily: theme.font.display,
     fontSize: 32,
     color: theme.colors.text,
     letterSpacing: -0.6,
   },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 },
   rating: {
-    marginTop: 8,
     fontFamily: theme.font.bodyBold,
     color: theme.colors.accentDeep,
   },
-  rates: { marginTop: 16, gap: 4 },
+  rates: { flexDirection: "row", gap: 10, marginTop: 16 },
+  rateCard: {
+    flex: 1,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 14,
+    gap: 4,
+  },
+  rateVal: {
+    fontFamily: theme.font.display,
+    fontSize: 22,
+    color: theme.colors.text,
+    marginTop: 4,
+  },
   rateLine: {
     fontFamily: theme.font.bodySemi,
     color: theme.colors.text,
     fontSize: 16,
   },
+  secondaryRow: { flexDirection: "row", gap: 10, marginTop: 20 },
   reviewHead: {
     flexDirection: "row",
     justifyContent: "space-between",

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { TextInput, StyleSheet, TextInputProps, View } from "react-native";
 import { AppText } from "./Text";
 import { theme } from "../../theme/tokens";
@@ -5,14 +6,29 @@ import { theme } from "../../theme/tokens";
 export function Input({
   label,
   style,
+  onFocus,
+  onBlur,
   ...props
 }: TextInputProps & { label?: string }) {
+  const [focused, setFocused] = useState(false);
   return (
     <View style={styles.wrap}>
-      {label ? <AppText variant="label" style={styles.label}>{label}</AppText> : null}
+      {label ? (
+        <AppText variant="label" style={styles.label}>
+          {label}
+        </AppText>
+      ) : null}
       <TextInput
         placeholderTextColor={theme.colors.textMuted}
-        style={[styles.input, style]}
+        style={[styles.input, focused && styles.inputFocused, style]}
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          onBlur?.(e);
+        }}
         {...props}
       />
     </View>
@@ -20,7 +36,7 @@ export function Input({
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginTop: 8 },
+  wrap: { marginTop: 12 },
   label: { marginBottom: 6 },
   input: {
     backgroundColor: theme.colors.backgroundElevated,
@@ -33,4 +49,5 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontFamily: theme.font.body,
   },
+  inputFocused: { borderColor: theme.colors.brandLight },
 });

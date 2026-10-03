@@ -20,8 +20,9 @@ export function PrimaryButton({
     variant === "danger"
       ? theme.colors.callRed
       : variant === "ghost"
-        ? "transparent"
+        ? theme.colors.backgroundElevated
         : theme.colors.brand;
+  const isDisabled = loading || disabled;
   return (
     <TouchableOpacity
       style={[
@@ -29,17 +30,23 @@ export function PrimaryButton({
         variant === "primary" && styles.glow,
         {
           backgroundColor: bg,
-          borderWidth: variant === "ghost" ? 1 : 0,
-          borderColor: theme.colors.border,
+          borderWidth: 1,
+          borderColor:
+            variant === "ghost"
+              ? "rgba(255,255,255,0.14)"
+              : variant === "danger"
+                ? "rgba(255,255,255,0.12)"
+                : theme.colors.brandLight,
+          opacity: isDisabled && !loading ? 0.5 : 1,
         },
         style,
       ]}
       onPress={onPress}
-      disabled={loading || disabled}
+      disabled={isDisabled}
       activeOpacity={0.85}
     >
       {loading ? (
-        <ActivityIndicator color={variant === "ghost" ? theme.colors.brandLight : theme.colors.onBrand} />
+        <ActivityIndicator color={variant === "ghost" ? theme.colors.brandLight : "#fff"} />
       ) : (
         <Text style={[styles.label, variant === "ghost" && { color: theme.colors.text }]}>
           {label}
@@ -62,10 +69,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.28,
     shadowRadius: 16,
-    elevation: 8,
+    elevation: 6,
   },
   label: {
-    color: theme.colors.onBrand,
+    color: "#fff",
     fontSize: 16,
     fontFamily: theme.font.bodyBold,
   },

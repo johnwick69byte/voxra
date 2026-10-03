@@ -23,7 +23,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { walletAPI, withdrawalAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
-import { AppText, Card } from "../../src/components/ui";
+import { AppText } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
 import * as Haptics from "expo-haptics";
 
@@ -351,15 +351,26 @@ export default function WalletScreen() {
       <FlatList
         data={filteredTxs}
         keyExtractor={(i) => i.transaction_id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
+        style={{ flex: 1 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={theme.colors.brandLight} />}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, paddingTop: 8 }}
+        ListEmptyComponent={
+          <AppText variant="caption" style={{ textAlign: "center", marginTop: 24 }}>
+            No transactions yet.
+          </AppText>
+        }
         renderItem={({ item }) => (
-          <Card style={styles.tx}>
+          <View style={styles.tx}>
             <View style={styles.txRow}>
-              <AppText style={styles.txType}>{item.type}</AppText>
+              <AppText style={styles.txType}>{String(item.type || "").replace(/_/g, " ")}</AppText>
               <AppText style={styles.txAmt}>₹{Number(item.amount).toFixed(2)}</AppText>
             </View>
-          </Card>
+            {item.created_at ? (
+              <AppText variant="caption" style={{ marginTop: 4 }}>
+                {new Date(item.created_at).toLocaleDateString()}
+              </AppText>
+            ) : null}
+          </View>
         )}
       />
     </View>
@@ -458,8 +469,15 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: theme.colors.brand },
   chipText: { fontFamily: theme.font.bodySemi, fontSize: 12, color: theme.colors.textSecondary },
   chipTextOn: { color: theme.colors.onBrand },
-  tx: { marginBottom: 8, paddingVertical: 12 },
+  tx: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 14,
+    marginBottom: 8,
+  },
   txRow: { flexDirection: "row", justifyContent: "space-between" },
-  txType: { fontFamily: theme.font.bodySemi, color: theme.colors.text },
-  txAmt: { color: theme.colors.textSecondary, fontFamily: theme.font.body },
+  txType: { fontFamily: theme.font.bodySemi, color: theme.colors.text, textTransform: "capitalize" },
+  txAmt: { color: theme.colors.brandLight, fontFamily: theme.font.bodyBold },
 });

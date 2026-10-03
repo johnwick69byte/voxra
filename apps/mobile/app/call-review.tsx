@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { View, StyleSheet, TextInput, Pressable, Alert } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
 import { callsAPI, creatorsAPI } from "../src/services/api";
 import { PrimaryButton } from "../src/components/PrimaryButton";
@@ -92,35 +93,48 @@ export default function CallReview() {
   return (
     <View style={styles.wrap}>
       <AppText style={styles.brand}>{APP_NAME}</AppText>
-      <AppText variant="title" style={{ marginTop: 12 }}>
-        How was your call?
-      </AppText>
-      <AppText variant="subtitle">{peerName || "Creator"}</AppText>
-      <View style={styles.stars}>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <Pressable key={n} onPress={() => setRating(n)}>
-            <AppText style={[styles.star, n <= rating && styles.starOn]}>★</AppText>
-          </Pressable>
-        ))}
+      <View style={styles.card}>
+        <AppText variant="title" style={{ textAlign: "center" }}>
+          How was your call?
+        </AppText>
+        <AppText variant="subtitle" style={{ textAlign: "center", marginTop: 6 }}>
+          {peerName || "Creator"}
+        </AppText>
+
+        <View style={styles.stars}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <Pressable key={n} onPress={() => setRating(n)} hitSlop={6}>
+              <Ionicons
+                name={n <= rating ? "star" : "star-outline"}
+                size={40}
+                color={n <= rating ? theme.colors.accent : theme.colors.textMuted}
+              />
+            </Pressable>
+          ))}
+        </View>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Optional comment"
+          placeholderTextColor={theme.colors.textMuted}
+          value={comment}
+          onChangeText={setComment}
+          multiline
+        />
+
+        <PrimaryButton label="Submit review" onPress={submit} loading={loading} style={{ marginTop: 18 }} />
+        <PrimaryButton label="Skip" variant="ghost" onPress={done} style={{ marginTop: 10 }} />
       </View>
-      <TextInput
-        style={styles.input}
-        placeholder="Optional comment"
-        placeholderTextColor={theme.colors.textMuted}
-        value={comment}
-        onChangeText={setComment}
-        multiline
-      />
-      <PrimaryButton label="Submit review" onPress={submit} loading={loading} style={{ marginTop: 20 }} />
-      <PrimaryButton label="Skip" variant="ghost" onPress={done} style={{ marginTop: 10 }} />
+
       <View style={styles.safety}>
-        <Pressable onPress={report}>
+        <Pressable onPress={report} style={styles.safetyBtn}>
+          <Ionicons name="flag" size={16} color={theme.colors.error} />
           <AppText color={theme.colors.error} style={styles.safetyLink}>
             Report
           </AppText>
         </Pressable>
-        <AppText color={theme.colors.textMuted}> · </AppText>
-        <Pressable onPress={block}>
+        <Pressable onPress={block} style={styles.safetyBtn}>
+          <Ionicons name="ban" size={16} color={theme.colors.error} />
           <AppText color={theme.colors.error} style={styles.safetyLink}>
             Block
           </AppText>
@@ -131,15 +145,16 @@ export default function CallReview() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: theme.colors.background, padding: 24, paddingTop: 72 },
-  brand: {
-    fontFamily: theme.font.display,
-    fontSize: 28,
-    color: theme.colors.brand,
+  wrap: { flex: 1, backgroundColor: theme.colors.background, padding: 20, paddingTop: 64 },
+  brand: { fontFamily: theme.font.display, fontSize: 28, color: theme.colors.brand, marginBottom: 16 },
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.xl,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 22,
   },
-  stars: { flexDirection: "row", gap: 8, marginTop: 24 },
-  star: { fontSize: 36, color: theme.colors.border },
-  starOn: { color: theme.colors.accent },
+  stars: { flexDirection: "row", justifyContent: "center", gap: 10, marginTop: 20 },
   input: {
     marginTop: 20,
     minHeight: 100,
@@ -152,11 +167,17 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontFamily: theme.font.body,
   },
-  safety: {
+  safety: { flexDirection: "row", justifyContent: "center", gap: 16, marginTop: 24 },
+  safetyBtn: {
     flexDirection: "row",
-    justifyContent: "center",
-    marginTop: 28,
     alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(239,68,68,0.3)",
+    backgroundColor: "rgba(239,68,68,0.08)",
   },
   safetyLink: { fontFamily: theme.font.bodySemi, fontSize: 14 },
 });

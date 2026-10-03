@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { View, FlatList, StyleSheet } from "react-native";
+import { useCallback, useState } from "react";
+import { View, FlatList, StyleSheet, RefreshControl } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
 import { callsAPI } from "../src/services/api";
-import { AppText, EmptyState } from "../src/components/ui";
+import { AppText, EmptyState, ScreenHeader } from "../src/components/ui";
 import { theme } from "../src/theme/tokens";
 import { useAuthStore } from "../src/store/authStore";
 
@@ -13,19 +14,36 @@ function formatDuration(sec = 0) {
 
 export default function CallHistory() {
   const user = useAuthStore((s) => s.user);
+  const router = useRouter();
   const [calls, setCalls] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    callsAPI.history().then((r) => setCalls(r.data.calls || []));
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await callsAPI.history();
+      setCalls(res.data.calls || []);
+    } finally {
+      setRefreshing(false);
+    }
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   return (
     <View style={styles.wrap}>
-      <AppText style={styles.title}>Call history</AppText>
+      <ScreenHeader title="Call history" subtitle={`${calls.length} calls`} />
       <FlatList
         data={calls}
         keyExtractor={(i) => i.call_id}
-        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={theme.colors.brandLight} />
+        }
+        contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 8 }}
         ListEmptyComponent={<EmptyState title="No calls yet" subtitle="Your completed calls will show here." />}
         renderItem={({ item }) => {
           const isCaller = item.caller_id === user?.user_id;
@@ -54,23 +72,16 @@ export default function CallHistory() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 64 },
-  title: {
-    fontFamily: theme.font.display,
-    fontSize: 32,
-    color: theme.colors.brand,
-    paddingHorizontal: 24,
-  },
+  wrap: { flex: 1, backgroundColor: theme.colors.background },
   row: {
     flexDirection: "row",
-    backgroundColor: theme.colors.backgroundElevated,
+    backgroundColor: theme.colors.surface,
     padding: 14,
     borderRadius: 14,
-    marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.colors.border,
     alignItems: "center",
   },
   main: { fontFamily: theme.font.bodyBold, color: theme.colors.text, fontSize: 16 },
-  amt: { fontFamily: theme.font.bodyBold, color: theme.colors.brand },
+  amt: { fontFamily: theme.font.bodyBold, color: theme.colors.brandLight },
 });

@@ -3,10 +3,10 @@ import { View, FlatList, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
-import { favoritesAPI } from "../src/services/api";
-import { AppText, Avatar, EmptyState } from "../src/components/ui";
-import { StatusDot } from "../src/components/StatusDot";
-import { theme } from "../src/theme/tokens";
+import { favoritesAPI } from "../../src/services/api";
+import { AppText, Avatar, EmptyState } from "../../src/components/ui";
+import { StatusDot } from "../../src/components/StatusDot";
+import { theme } from "../../src/theme/tokens";
 
 export default function FavoritesScreen() {
   const router = useRouter();
@@ -39,12 +39,7 @@ export default function FavoritesScreen() {
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
-        </Pressable>
-        <AppText style={styles.title}>Favorites</AppText>
-      </View>
+      <AppText style={styles.title}>Favorites</AppText>
       <FlatList
         data={models}
         keyExtractor={(m) => m.user_id}
@@ -81,21 +76,18 @@ export default function FavoritesScreen() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 56 },
-  header: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16 },
-  back: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.colors.backgroundElevated,
-    alignItems: "center",
-    justifyContent: "center",
+  wrap: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 64 },
+  title: {
+    fontFamily: theme.font.display,
+    fontSize: 32,
+    color: theme.colors.brand,
+    paddingHorizontal: 20,
+    marginBottom: 8,
   },
-  title: { fontFamily: theme.font.display, fontSize: 28, color: theme.colors.brand },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: theme.colors.backgroundElevated,
+    backgroundColor: theme.colors.surface,
     padding: 12,
     borderRadius: 14,
     marginBottom: 8,

@@ -165,6 +165,13 @@ class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None
     picture: Optional[str] = None
     bio: Optional[str] = None
+    category: Optional[str] = None
+    languages: Optional[List[str]] = None
+    gender: Optional[str] = None
+    famous_profile_link: Optional[str] = None
+    audio_rate_per_minute: Optional[float] = None
+    video_rate_per_minute: Optional[float] = None
+    instant_call_enabled: Optional[bool] = None
 
 
 class PricingSetupRequest(BaseModel):

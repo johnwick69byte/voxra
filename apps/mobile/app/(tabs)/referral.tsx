@@ -12,7 +12,7 @@ import { useFocusEffect } from "expo-router";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import Toast from "react-native-toast-message";
 import * as Haptics from "expo-haptics";
-import { Screen, AppText, Card } from "../../src/components/ui";
+import { Screen, AppText } from "../../src/components/ui";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { referralAPI } from "../../src/services/api";
 import { theme } from "../../src/theme/tokens";
@@ -101,14 +101,14 @@ export default function ReferralScreen() {
           </AppText>
         </Animated.View>
 
-        <Card style={styles.codeCard}>
+        <View style={styles.codeCard}>
           <AppText variant="label">Your code</AppText>
           <AppText style={styles.code}>{code}</AppText>
           <View style={styles.row}>
             <PrimaryButton label="Copy" variant="ghost" onPress={copy} style={{ flex: 1 }} />
             <PrimaryButton label="Share" onPress={share} style={{ flex: 1 }} />
           </View>
-        </Card>
+        </View>
 
         <View style={styles.stats}>
           <View style={styles.stat}>
@@ -125,16 +125,19 @@ export default function ReferralScreen() {
           </View>
         </View>
 
+        <AppText variant="label" style={styles.sectionLabel}>How it works</AppText>
         <View style={styles.steps}>
           {[
-            "Share your code",
-            "Friend creates an account",
-            "You earn on their first recharge",
+            "Share your code with a friend",
+            "Friend signs up and enters your code",
+            "You both earn on their first recharge",
           ].map((t, i) => (
-            <Card key={t} style={{ marginBottom: 8 }}>
-              <AppText variant="label">Step {i + 1}</AppText>
-              <AppText style={{ marginTop: 4, fontFamily: theme.font.bodySemi }}>{t}</AppText>
-            </Card>
+            <View key={t} style={styles.stepCard}>
+              <View style={styles.stepNum}>
+                <AppText style={styles.stepNumText}>{i + 1}</AppText>
+              </View>
+              <AppText style={styles.stepText}>{t}</AppText>
+            </View>
           ))}
         </View>
 
@@ -158,7 +161,7 @@ export default function ReferralScreen() {
           </View>
         ) : null}
 
-        <AppText variant="label" style={{ paddingHorizontal: 24, marginTop: 8 }}>
+        <AppText variant="label" style={styles.sectionLabel}>
           Friends
         </AppText>
         {(data?.referrals || []).length === 0 ? (
@@ -167,22 +170,20 @@ export default function ReferralScreen() {
           </AppText>
         ) : (
           (data.referrals || []).map((r: any) => (
-            <Card key={r.user_id} style={{ marginHorizontal: 24, marginTop: 8 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                <View>
-                  <AppText style={{ fontFamily: theme.font.bodyBold }}>{r.name}</AppText>
-                  <AppText variant="caption">{r.phone_masked}</AppText>
-                </View>
+            <View key={r.user_id} style={styles.referralCard}>
+              <View style={{ flex: 1 }}>
+                <AppText style={{ fontFamily: theme.font.bodyBold }}>{r.name}</AppText>
+                <AppText variant="caption">{r.phone_masked}</AppText>
+              </View>
+              <View style={[styles.statusPill, r.status === "rewarded" && styles.statusPillOn]}>
                 <AppText
-                  style={{
-                    color: r.status === "rewarded" ? theme.colors.success : theme.colors.accent,
-                    fontFamily: theme.font.bodySemi,
-                  }}
+                  variant="caption"
+                  color={r.status === "rewarded" ? theme.colors.success : theme.colors.accent}
                 >
                   {r.status === "rewarded" ? "Rewarded" : "Joined"}
                 </AppText>
               </View>
-            </Card>
+            </View>
           ))
         )}
       </ScrollView>
@@ -199,7 +200,14 @@ const styles = StyleSheet.create({
     marginTop: 8,
     letterSpacing: -0.6,
   },
-  codeCard: { marginHorizontal: 24, padding: 20 },
+  codeCard: {
+    marginHorizontal: 24,
+    padding: 20,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
   code: {
     fontFamily: theme.font.display,
     fontSize: 36,
@@ -228,7 +236,46 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: theme.colors.text,
   },
-  steps: { marginHorizontal: 24, marginTop: 20 },
+  steps: { marginHorizontal: 24, marginTop: 4, gap: 8 },
+  stepCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 14,
+  },
+  stepNum: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: theme.colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepNumText: { fontFamily: theme.font.bodyBold, color: theme.colors.onBrand },
+  stepText: { flex: 1, fontFamily: theme.font.bodySemi, color: theme.colors.text },
+  sectionLabel: { paddingHorizontal: 24, marginTop: 20, marginBottom: 8 },
+  referralCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 24,
+    marginTop: 8,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 14,
+  },
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: "rgba(232,168,124,0.12)",
+  },
+  statusPillOn: { backgroundColor: "rgba(34,197,94,0.12)" },
   apply: { marginHorizontal: 24, marginTop: 20 },
   input: {
     marginTop: 8,

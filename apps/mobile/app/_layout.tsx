@@ -219,7 +219,6 @@ export default function RootLayout() {
         <Stack.Screen name="edit-profile" />
         <Stack.Screen name="notifications" />
         <Stack.Screen name="support" />
-        <Stack.Screen name="favorites" />
         <Stack.Screen name="earnings" />
         <Stack.Screen name="reviews" />
         <Stack.Screen name="privacy" />

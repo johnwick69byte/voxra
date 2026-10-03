@@ -10,7 +10,6 @@ from app.models.schemas import (
     ApplyReferralRequest,
     AgoraTokenRequest,
     BlockUserRequest,
-    FavoriteRequest,
     ModerationCallReport,
     ReportUserRequest,
     SupportMessageRequest,
@@ -53,58 +52,6 @@ async def app_config():
 @router.post("/agora/token")
 async def agora_token(body: AgoraTokenRequest, user: dict = Depends(require_user)):
     return {"success": True, **agora_service.build_rtc_token(body.channel_name, uid=body.uid)}
-
-
-# ── Favorites ────────────────────────────────────────────────────────────────
-
-@router.post("/favorites/add")
-async def favorite_add(body: FavoriteRequest, user: dict = Depends(require_user)):
-    db = get_db()
-    await db.favorites.update_one(
-        {"user_id": user["user_id"], "creator_id": body.model_id},
-        {"$set": {"created_at": datetime.now(timezone.utc)}},
-        upsert=True,
-    )
-    return {"success": True}
-
-
-@router.post("/favorites/remove")
-async def favorite_remove(body: FavoriteRequest, user: dict = Depends(require_user)):
-    db = get_db()
-    await db.favorites.delete_one({"user_id": user["user_id"], "creator_id": body.model_id})
-    return {"success": True}
-
-
-@router.get("/favorites")
-async def favorites_list(user: dict = Depends(require_user)):
-    db = get_db()
-    favs = await db.favorites.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
-    ids = [f["creator_id"] for f in favs]
-    if not ids:
-        return {"success": True, "models": []}
-    users = await db.users.find({"user_id": {"$in": ids}}, {"_id": 0}).to_list(100)
-    profiles = await db.creator_profiles.find(
-        {"user_id": {"$in": ids}, "is_approved": True}, {"_id": 0}
-    ).to_list(100)
-    pmap = {p["user_id"]: p for p in profiles}
-    from app.services import presence_service
-
-    models = []
-    for u in users:
-        p = pmap.get(u["user_id"])
-        if not p:
-            continue
-        models.append(
-            {**u, "model_profile": p, "status": await presence_service.get_creator_status(u["user_id"], p)}
-        )
-    return {"success": True, "models": models}
-
-
-@router.get("/favorites/check/{model_id}")
-async def favorite_check(model_id: str, user: dict = Depends(require_user)):
-    db = get_db()
-    fav = await db.favorites.find_one({"user_id": user["user_id"], "creator_id": model_id})
-    return {"success": True, "is_favorite": fav is not None}
 
 
 # ── Moderation ───────────────────────────────────────────────────────────────

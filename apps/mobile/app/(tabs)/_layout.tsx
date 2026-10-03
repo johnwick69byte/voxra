@@ -92,20 +92,11 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="favorites"
-        options={{
-          title: isCreator ? "Saved" : "Favorites",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="heart" color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="following"
         options={{
           title: isCreator ? "Calls" : "Following",
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="people" color={color} focused={focused} />
+            <TabIcon name={isCreator ? "time" : "heart"} color={color} focused={focused} />
           ),
         }}
       />

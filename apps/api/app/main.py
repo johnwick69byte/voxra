@@ -18,11 +18,25 @@ logger = logging.getLogger("voxora")
 
 
 async def _sweeper_loop():
+    ticks = 0
     while True:
         try:
             n = await call_service.sweep_stuck_calls()
             if n:
                 logger.info("Swept %s stuck calls", n)
+            from app.services import presence_service
+
+            flipped = await presence_service.reconcile_offline_creators()
+            if flipped:
+                logger.info("Marked %s creators offline", flipped)
+            # Every ~2 minutes, settle recharges the user may have abandoned after paying.
+            ticks += 1
+            if ticks % 2 == 0:
+                from app.services import payment_service
+
+                settled = await payment_service.reconcile_pending_orders()
+                if settled:
+                    logger.info("Settled %s pending recharges", settled)
         except Exception:
             logger.exception("sweeper error")
         await asyncio.sleep(60)

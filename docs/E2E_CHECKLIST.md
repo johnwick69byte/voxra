@@ -15,7 +15,7 @@ API: https://voxra-dkfe.onrender.com
 - [ ] Search debounced; sort Popular / Price; status chips
 - [ ] Status dots ACTIVE/BUSY/OFFLINE/DND with color crossfade
 - [ ] Creator gallery swipe; reviews list; sticky CTA disables when busy/dnd/offline
-- [ ] Rates show “Creator receives ~85%” commission hint
+- [ ] Rates show per-minute audio/video; no commission % on the fan profile
 - [ ] Creator home: earnings amount, sparkline stub, Available/DND toggle (color-coded)
 
 ## Calls — safety
@@ -31,7 +31,11 @@ API: https://voxra-dkfe.onrender.com
 - [ ] Back confirms end; 20s reconnect banner; kill+relaunch restores LIVE
 
 ## Wallet / money
-- [ ] Fan: Spendable balance + recharge packs / custom amount
+- [ ] Fan: Spendable balance + a "Recharge wallet" entry
+- [ ] Recharge opens the backend-rendered page (balance + packs + custom amount) in an in-app browser; tapping an amount starts Cashfree
+- [ ] On success the browser returns to the app and 94% is credited; 6% commission logged to `platform_commissions`
+- [ ] No bonus is added — the credited amount is exactly 94% of what was paid
+- [ ] Abrupt close after paying: reopen Wallet → pending orders are verified/settled; background reconciler also settles them
 - [ ] Creator: Earnings card + Withdraw (UPI) → `POST /wallet/withdraw` (min ₹100)
 - [ ] Transaction filters: ALL / RECHARGE / CALL / GIFT / WITHDRAW
 - [ ] Gift: fan `balance` debit; creator `earnings_balance` credit net of 15%

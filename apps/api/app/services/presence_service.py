@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from app.core.database import get_db
@@ -16,6 +17,41 @@ async def is_online(user_id: str) -> bool:
         return bool(await r.exists(presence_key(user_id)))
     except Exception:
         return False
+
+
+async def mark_creator_online(creator_id: str) -> None:
+    """Persist presence on the profile so browse can filter/sort/paginate in Mongo."""
+    db = get_db()
+    await db.creator_profiles.update_one(
+        {"user_id": creator_id},
+        {"$set": {"is_online": True, "last_seen": datetime.now(timezone.utc)}},
+    )
+
+
+async def mark_creator_offline(creator_id: str) -> None:
+    db = get_db()
+    await db.creator_profiles.update_one(
+        {"user_id": creator_id},
+        {"$set": {"is_online": False, "last_seen": datetime.now(timezone.utc)}},
+    )
+
+
+async def reconcile_offline_creators() -> int:
+    """Flip profiles offline when their Redis presence key has expired (missed disconnect)."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    rows = await db.creator_profiles.find(
+        {"is_online": True}, {"_id": 0, "user_id": 1}
+    ).to_list(2000)
+    flipped = 0
+    for row in rows:
+        uid = row["user_id"]
+        if not await is_online(uid):
+            await db.creator_profiles.update_one(
+                {"user_id": uid}, {"$set": {"is_online": False, "last_seen": now}}
+            )
+            flipped += 1
+    return flipped
 
 
 async def get_creator_status(creator_id: str, profile: Optional[dict] = None) -> str:
@@ -46,6 +82,16 @@ async def get_creator_status(creator_id: str, profile: Optional[dict] = None) ->
         # Offline creators can still be rung via push; UI shows OFFLINE
         return "OFFLINE"
     return "ACTIVE"
+
+
+def status_from_profile(profile: dict, *, is_online_now: Optional[bool] = None, busy: bool = False) -> str:
+    """Derive display status from denormalized fields without extra queries."""
+    if profile.get("is_dnd"):
+        return "DND"
+    if busy:
+        return "BUSY"
+    online = is_online_now if is_online_now is not None else bool(profile.get("is_online"))
+    return "ACTIVE" if online else "OFFLINE"
 
 
 async def is_creator_available(creator_id: str, profile: Optional[dict] = None) -> Tuple[bool, str]:

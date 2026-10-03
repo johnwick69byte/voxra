@@ -175,6 +175,9 @@ async def review(call_id: str, body: ReviewRequest, user: dict = Depends(require
         },
         upsert=True,
     )
+    from app.routers.creators import refresh_creator_rating
+
+    await refresh_creator_rating(db, call["receiver_id"])
     return {"success": True}
 
 

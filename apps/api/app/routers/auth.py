@@ -112,12 +112,22 @@ async def complete_profile(body: CompleteProfileRequest, user: dict = Depends(re
         languages = body.languages or []
         if not languages or any(lang not in LANGUAGES for lang in languages):
             raise HTTPException(400, "Select at least one language")
+        from app.routers.creators import build_search_text
+
         creator_fields = {
             "bio": (body.bio or "").strip(),
             "gender": body.gender,
             "category": body.category,
             "languages": languages,
             "famous_profile_link": body.famous_profile_link or "",
+            "search_text": build_search_text(
+                {
+                    "bio": (body.bio or "").strip(),
+                    "category": body.category,
+                    "languages": languages,
+                },
+                {"name": body.name.strip(), "username": body.username},
+            ),
         }
         existing = await db.creator_profiles.find_one({"user_id": user["user_id"]})
         if not existing:
@@ -130,6 +140,9 @@ async def complete_profile(body: CompleteProfileRequest, user: dict = Depends(re
                     "instant_call_enabled": True,
                     "is_dnd": False,
                     "is_approved": False,
+                    "is_online": False,
+                    "avg_rating": None,
+                    "review_count": 0,
                     "verification_status": "pending_pricing",
                     "created_at": datetime.now(timezone.utc),
                     **creator_fields,
@@ -154,6 +167,10 @@ async def complete_profile(body: CompleteProfileRequest, user: dict = Depends(re
 
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if updated.get("user_type") == "creator":
+        from app.routers.creators import refresh_search_text
+
+        await refresh_search_text(db, user["user_id"])
     token = create_access_token(updated["user_id"], updated["user_type"])
     return {"success": True, "user": updated, "token": token}
 
@@ -214,6 +231,9 @@ async def update_profile(body: UpdateProfileRequest, user: dict = Depends(requir
             await db.creator_profiles.update_one(
                 {"user_id": user["user_id"]}, {"$set": cprofile}, upsert=True
             )
+        from app.routers.creators import refresh_search_text
+
+        await refresh_search_text(db, user["user_id"])
 
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     profile = None

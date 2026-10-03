@@ -15,7 +15,7 @@ export default function Terms() {
           </AppText>
           <AppText style={styles.h}>What we are not responsible for</AppText>
           <AppText style={styles.body}>
-            We are not responsible for user or creator conduct, advice, identity claims, off-platform contact or payments, recordings made by either person, call quality, or whether a creator answers. Network conditions and device permissions can affect a call. To the extent the law allows, liability for a claim about the platform is limited to what you paid in the three months before the claim, or unpaid earnings still owed to you, whichever is greater.
+            We are not responsible for user or creator conduct, advice, identity claims, off-platform contact or payments, recordings made by either person, call quality, or whether a creator answers. Everything said or done on a call is that person's own action, and they alone face the consequences of it; the platform is not a party to the conversation. Network conditions and device permissions can affect a call. To the extent the law allows, liability for a claim about the platform is limited to what you paid in the three months before the claim, or unpaid earnings still owed to you, whichever is greater.
           </AppText>
           <AppText style={styles.h}>Misuse and illegal use</AppText>
           <AppText style={styles.body}>
@@ -27,9 +27,8 @@ export default function Terms() {
           </AppText>
           <AppText style={styles.h}>Wallet</AppText>
           <AppText style={styles.body}>
-            Recharges are prepaid credits, not a bank deposit. A 15% platform commission applies to calls and gifts, so the creator receives about 85%. Earnings are a separate balance. UPI withdrawals start at ₹100 and are reviewed. Referral bonuses, currently ₹25 and ₹20 on a friend’s first recharge, can change or end.
-          </AppText>
-          <AppText style={styles.h}>Acceptable use</AppText>
+            Recharges are prepaid credits, not a bank deposit. A 6% platform and payment-gateway fee (3% gateway + 3% service) is deducted at recharge, so 94% of the amount you pay is added to your spendable wallet. A separate 15% platform commission applies to calls and gifts, so the creator receives about 85% of the call value. Earnings are a separate balance. UPI withdrawals start at ₹100 and are reviewed. Referral bonuses, currently ₹25 and ₹20 on a friend’s first recharge, can change or end.
+          </AppText>          <AppText style={styles.h}>Acceptable use</AppText>
           <AppText style={styles.body}>
             No illegal content, scams, harassment, sexual content involving anyone under 18, impersonation, or attempts to move payment off the platform to avoid fees. Creators are responsible for what they offer and for tax on their earnings.
           </AppText>

@@ -877,6 +877,44 @@ async def financial_commissions(
     return {"success": True, "breakdown": result}
 
 
+@router.get("/financial/recharge-commissions")
+async def recharge_commissions(admin: dict = Depends(require_admin), limit: int = 100):
+    """Platform commission ledger from recharges (its own collection)."""
+    db = get_db()
+    limit = min(max(limit, 1), 200)
+    items = (
+        await db.platform_commissions.find({}, {"_id": 0})
+        .sort("created_at", -1)
+        .limit(limit)
+        .to_list(limit)
+    )
+    total_rows = await db.platform_commissions.aggregate(
+        [
+            {"$match": {"type": "RECHARGE_COMMISSION"}},
+            {
+                "$group": {
+                    "_id": None,
+                    "total": {"$sum": "$amount"},
+                    "gateway": {"$sum": "$gateway_commission"},
+                    "service": {"$sum": "$service_commission"},
+                    "count": {"$sum": 1},
+                }
+            },
+        ]
+    ).to_list(1)
+    t = total_rows[0] if total_rows else {}
+    return {
+        "success": True,
+        "commissions": items,
+        "totals": {
+            "total_commission": round(t.get("total", 0) or 0, 2),
+            "gateway_commission": round(t.get("gateway", 0) or 0, 2),
+            "service_commission": round(t.get("service", 0) or 0, 2),
+            "count": t.get("count", 0),
+        },
+    }
+
+
 @router.get("/financial/analytics")
 async def financial_analytics(period: str = "month", admin: dict = Depends(require_admin)):
     db = get_db()

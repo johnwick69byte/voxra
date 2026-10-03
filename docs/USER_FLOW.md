@@ -47,8 +47,8 @@ Permissions the fan must be able to grant, with the in-app explanation before th
 
 | ID | Step | Expected | Edge cases |
 | --- | --- | --- | --- |
-| U-2.1 | Open Browse | Only approved creators. Status dot for Available, On a call, Do not disturb, Offline | Search is debounced. Sort Popular and Price works. Empty search shows the list again |
-| U-2.2 | Open a creator profile | Name, photo, bio, audio rate, video rate, rating, follow | Rate line shows the creator receives about 85% |
+| U-2.1 | Open Browse/Discover | Only approved creators. Top bar shows a title and a notification bell with unread badge. Status row has All / Active now. Filters sheet has sort, gender and language | Search is debounced and runs on the backend. Ranking is ACTIVE-first, then rating/price/newest. Infinite scroll pages via `page`/`has_more`. Empty state offers Clear |
+| U-2.2 | Open a creator profile | Name, @username, photo gallery with thumbnails, bio, category/gender/language tags, rating, follow, verified badge, and the no-abuse/nudity disclaimer | Follow shows a "notified when online" hint. No commission percentage is shown to fans |
 | U-2.3 | Follow and unfollow | Following tab gains and loses that creator | Follow a creator, kill the app, reopen: follow is still there |
 | U-2.4 | Creator is DND, busy, or offline | Call button does not start a paid call | Offline may still be callable if the product allows push-wake. Busy and DND must return a clear error and must not debit the wallet |
 | U-2.5 | Second fan calls the same creator while the first ring is up | Second call is rejected. Message that the creator is receiving another call. No second ring | |
@@ -151,8 +151,8 @@ Checked against the mobile app and API. This is a source review, not a two-phone
 | U-1.6 | Pass | Client and `CompleteProfileRequest` both require 2 characters. |
 | U-1.7 | Pass | Denied photo permission toasts “Photo permission required” and does not block save. Username collision is HTTP 409 “Username taken”, shown in the toast. |
 | U-1.8 | Pass | Fan save goes to `/`, and index sends a finished fan to Browse. Quit before `profile_complete` resumes complete-profile. |
-| U-2.1 | Pass | Browse query is `is_approved: true`. Dots use ACTIVE, BUSY, OFFLINE, DND. Search debounce is 350ms. Sort chips are Popular and Price. Clearing search reloads the list. |
-| U-2.2 | Pass | Profile shows name, photo, bio, both rates, rating, follow, and “Creator receives ~85% after platform fee”. |
+| U-2.1 | Pass | `/creators/browse` is server-side: `is_approved`, `instant_call_enabled`, `status` (all/active), `gender`, `language`, `category`, backend `q` over `search_text`, and `page`/`limit` offset pagination with `total`/`has_more`. Ranking is `is_dnd` asc, `is_online` desc, then sort key, then `user_id`. Mobile shows All / Active now plus a Filters sheet (sort, gender, language) and a notification bell. |
+| U-2.2 | Pass | Profile shows name, @username, swipeable gallery + thumbnails, bio, category/gender/language tags, rating, Follow (with online-notify hint), verified badge, no-abuse/nudity disclaimer, and report/block. Commission % is not shown to fans. |
 | U-2.3 | Pass | Follow is stored in `follows` and the Following tab reads that collection, so it survives a restart. |
 | U-2.4 | Partial | DND and BUSY are blocked in the app and in `is_creator_available`, with no debit. OFFLINE is also blocked by the app (`startCall` treats OFFLINE as unavailable) even though the API would still allow a push-wake call. The button is only faded, not disabled, but `startCall` re-checks status and alerts. |
 | U-2.5 | Pass | Redis ring lock, or a Mongo `RINGING` row, returns HTTP 409 “Creator is receiving another call”. |

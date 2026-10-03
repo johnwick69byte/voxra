@@ -98,9 +98,9 @@ async def insert_transaction(
 
 
 RECHARGE_PACKAGES = [
-    {"id": "pkg_99", "amount": 99, "bonus": 0, "label": "Starter"},
-    {"id": "pkg_199", "amount": 199, "bonus": 10, "label": "Popular"},
-    {"id": "pkg_499", "amount": 499, "bonus": 50, "label": "Value"},
-    {"id": "pkg_999", "amount": 999, "bonus": 150, "label": "Pro"},
-    {"id": "pkg_1999", "amount": 1999, "bonus": 400, "label": "Ultra"},
+    {"id": "pkg_99", "amount": 99, "label": "Starter"},
+    {"id": "pkg_199", "amount": 199, "label": "Popular"},
+    {"id": "pkg_499", "amount": 499, "label": "Value"},
+    {"id": "pkg_999", "amount": 999, "label": "Pro"},
+    {"id": "pkg_1999", "amount": 1999, "label": "Ultra"},
 ]

@@ -79,8 +79,7 @@ export default function ProfileScreen() {
           <View style={styles.section}>
             <MenuRow icon="create" label="Edit profile" sub="Photos, bio, category & rates" onPress={() => router.push("/edit-profile")} />
             <MenuRow icon="pricetag" label="Call rates" sub="Audio & video per minute" onPress={() => router.push({ pathname: "/pricing-setup", params: { edit: "1" } })} />
-            <MenuRow icon="stats-chart" label="Earnings" sub="Breakdown & commission" onPress={() => router.push("/earnings")} />
-            <MenuRow icon="heart" label="Saved creators" onPress={() => router.push("/(tabs)/favorites")} last />
+            <MenuRow icon="stats-chart" label="Earnings" sub="Breakdown & commission" onPress={() => router.push("/earnings")} last />
           </View>
         </>
       ) : null}

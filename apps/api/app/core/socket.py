@@ -36,6 +36,9 @@ async def disconnect(sid):
                 r = get_redis()
                 if r:
                     await r.delete(presence_key(user_id))
+                from app.services import presence_service
+
+                await presence_service.mark_creator_offline(user_id)
                 await sio.emit(
                     "creator_status",
                     {"user_id": user_id, "status": "OFFLINE", "is_online": False},
@@ -60,15 +63,16 @@ async def authenticate(sid, data):
             await r.set(presence_key(user_id), "1", ex=90)
     except Exception:
         pass
-    # Creator came online — notify followers (rate-limited)
+    # Creator came online — persist presence + notify followers (rate-limited)
     if was_offline:
         try:
             from app.core.database import get_db
-            from app.services import follower_notify_service
+            from app.services import follower_notify_service, presence_service
 
             db = get_db()
             u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_type": 1})
             if u and u.get("user_type") == "creator":
+                await presence_service.mark_creator_online(user_id)
                 await follower_notify_service.notify_followers_creator_online(
                     user_id, reason="socket_online"
                 )

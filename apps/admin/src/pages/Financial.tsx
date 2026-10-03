@@ -20,20 +20,26 @@ export default function Financial() {
   const [analytics, setAnalytics] = useState<any[]>([]);
   const [commissions, setCommissions] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [rechargeCom, setRechargeCom] = useState<{ commissions: any[]; totals: any }>({
+    commissions: [],
+    totals: {},
+  });
   const [period, setPeriod] = useState<"day" | "week" | "month">("month");
 
   useEffect(() => {
     (async () => {
-      const [d, o, c, tx] = await Promise.all([
+      const [d, o, c, tx, rc] = await Promise.all([
         adminAPI.financialDashboard(),
         adminAPI.financialOverview(),
         adminAPI.financialCommissions(),
         adminAPI.financialTransactions(),
+        adminAPI.financialRechargeCommissions(50),
       ]);
       setData(d.data);
       setOverview(o.data.overview);
       setCommissions(c.data.breakdown || []);
       setTransactions(tx.data.transactions || []);
+      setRechargeCom(rc.data);
     })().catch(() => {});
   }, []);
 
@@ -92,6 +98,53 @@ export default function Financial() {
           </div>
         </div>
       )}
+
+      <div className="panel">
+        <h3>Recharge commission (6% per recharge)</h3>
+        <div style={{ display: "flex", gap: 32, flexWrap: "wrap", marginBottom: 12 }}>
+          <div>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Total</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{inr(rechargeCom.totals?.total_commission)}</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Gateway (3%)</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{inr(rechargeCom.totals?.gateway_commission)}</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Service (3%)</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{inr(rechargeCom.totals?.service_commission)}</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Recharges</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{rechargeCom.totals?.count || 0}</div>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>User</th>
+              <th>Paid</th>
+              <th>Credited</th>
+              <th>Commission</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(rechargeCom.commissions || []).map((c) => (
+              <tr key={c.commission_id}>
+                <td>{c.created_at ? new Date(c.created_at).toLocaleString() : "—"}</td>
+                <td>{c.user_id}</td>
+                <td>{inr(c.original_amount)}</td>
+                <td>{inr(c.credit_amount)}</td>
+                <td>{inr(c.amount)}</td>
+              </tr>
+            ))}
+            {!(rechargeCom.commissions || []).length && (
+              <tr><td colSpan={5} style={{ color: "var(--muted)" }}>No recharge commission yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
       <div className="panel">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

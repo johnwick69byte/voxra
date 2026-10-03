@@ -4,13 +4,15 @@ import {
   StyleSheet,
   FlatList,
   Pressable,
-  Linking,
   RefreshControl,
   TextInput,
   ScrollView,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as LinkingExpo from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import Toast from "react-native-toast-message";
 import Animated, {
   FadeInDown,
@@ -19,16 +21,15 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { walletAPI, withdrawalAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
+import { APP_SCHEME } from "../../src/theme/brand";
 import * as Haptics from "expo-haptics";
 
 const PENDING_ORDER_KEY = "pending_recharge_order";
-const LAST_RATE_KEY = "last_viewed_audio_rate";
 const TX_FILTERS = ["ALL", "RECHARGE", "CALL", "GIFT", "WITHDRAW"] as const;
 
 export default function WalletScreen() {
@@ -36,12 +37,10 @@ export default function WalletScreen() {
   const isCreator = user?.user_type === "creator";
   const [balance, setBalance] = useState(0);
   const [earnings, setEarnings] = useState(0);
-  const [packages, setPackages] = useState<any[]>([]);
   const [txs, setTxs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [customAmount, setCustomAmount] = useState("");
-  const [lastRate, setLastRate] = useState<number | null>(null);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [successFlash, setSuccessFlash] = useState(false);
   const [txFilter, setTxFilter] = useState<(typeof TX_FILTERS)[number]>("ALL");
   const [withdrawAmt, setWithdrawAmt] = useState("");
@@ -60,59 +59,62 @@ export default function WalletScreen() {
     return txs.filter((t) => String(t.type || "").toUpperCase().includes(txFilter));
   }, [txs, txFilter]);
 
-  const load = async () => {
+  const celebrateCredit = async (next: number) => {
+    if (prevBalance.current > 0 && next > prevBalance.current) {
+      setSuccessFlash(true);
+      scale.value = withSequence(
+        withTiming(1.06, { duration: theme.motion.rechargeSuccess / 2 }),
+        withTiming(1, { duration: theme.motion.rechargeSuccess / 2 })
+      );
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      setTimeout(() => setSuccessFlash(false), 1600);
+    }
+    prevBalance.current = next;
+  };
+
+  const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [b, p, t] = await Promise.all([
-        walletAPI.balance(),
-        walletAPI.packages(),
-        walletAPI.transactions(),
-      ]);
+      const [b, t] = await Promise.all([walletAPI.balance(), walletAPI.transactions()]);
       const next = b.data.balance || 0;
-      if (prevBalance.current > 0 && next > prevBalance.current) {
-        setSuccessFlash(true);
-        scale.value = withSequence(
-          withTiming(1.06, { duration: theme.motion.rechargeSuccess / 2 }),
-          withTiming(1, { duration: theme.motion.rechargeSuccess / 2 })
-        );
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setTimeout(() => setSuccessFlash(false), 1600);
-      }
-      prevBalance.current = next;
+      await celebrateCredit(next);
       setBalance(next);
       setEarnings(b.data.earnings_balance || 0);
-      setPackages(p.data.packages || []);
       setTxs(t.data.transactions || []);
     } finally {
       setRefreshing(false);
     }
-  };
+  }, []);
 
-  const verifyPending = async () => {
+  const verifyPending = useCallback(async () => {
     const orderId = await AsyncStorage.getItem(PENDING_ORDER_KEY);
-    if (!orderId) return;
     try {
-      const res = await walletAPI.verifyPending(orderId);
-      if (res.data?.success) {
-        await AsyncStorage.removeItem(PENDING_ORDER_KEY);
-        Toast.show({ type: "success", text1: "Payment credited" });
+      const res = await walletAPI.verifyPending(orderId || undefined);
+      if (orderId) await AsyncStorage.removeItem(PENDING_ORDER_KEY);
+      const credited = Number(res.data?.credited || 0);
+      if (res.data?.status === "SUCCESS" || res.data?.recovered_count > 0 || credited > 0) {
+        Toast.show({
+          type: "success",
+          text1: "Payment credited",
+          text2: credited > 0 ? `₹${credited.toFixed(2)} added` : undefined,
+        });
         await load();
+      } else if (res.data?.status === "FAILED") {
+        Toast.show({ type: "error", text1: "Payment failed" });
       }
     } catch {
-      Toast.show({ type: "info", text1: "Payment still pending" });
+      /* retry on next open */
     }
-  };
+  }, [load]);
 
   useFocusEffect(
     useCallback(() => {
       load();
       verifyPending();
-      AsyncStorage.getItem(LAST_RATE_KEY).then((v) => {
-        if (v) setLastRate(Number(v) || null);
-      });
-    }, [])
+    }, [load, verifyPending])
   );
 
+  // Deep-link return (custom scheme) — settle and refresh.
   useEffect(() => {
     const sub = LinkingExpo.addEventListener("url", ({ url }) => {
       if (url?.includes("wallet")) {
@@ -124,25 +126,21 @@ export default function WalletScreen() {
       if (url?.includes("wallet")) verifyPending();
     });
     return () => sub.remove();
-  }, []);
+  }, [load, verifyPending]);
 
-  const recharge = async (amount: number, packageId?: string) => {
-    if (!amount || amount < 10) {
-      Toast.show({ type: "error", text1: "Minimum recharge ₹10" });
-      return;
-    }
-    setLoading(true);
+  const recharge = async (amount?: number, packageId?: string) => {
+    setCheckoutBusy(true);
     try {
-      const res = await walletAPI.initiate(amount, packageId);
-      const orderId = res.data.order_id;
-      if (orderId) await AsyncStorage.setItem(PENDING_ORDER_KEY, orderId);
-      const url = res.data.payment_url;
-      if (url) await Linking.openURL(url);
-      Toast.show({
-        type: "info",
-        text1: "Complete payment",
-        text2: "Return via simpletalk://wallet",
-      });
+      // Open the backend-rendered recharge page (balance + packs + custom amount),
+      // which then starts Cashfree. This mirrors the old app's flow.
+      const base = (process.env.EXPO_PUBLIC_API_URL || "").replace(/\/api$/, "");
+      const token = useAuthStore.getState().token;
+      const url = `${base}/api/wallet/recharge?token=${encodeURIComponent(token || "")}`;
+      const result = await WebBrowser.openAuthSessionAsync(url, `${APP_SCHEME}://wallet`);
+      await verifyPending();
+      if (result.type === "cancel" || result.type === "dismiss") {
+        Toast.show({ type: "info", text1: "Payment not completed" });
+      }
     } catch (e: any) {
       Toast.show({
         type: "error",
@@ -150,7 +148,7 @@ export default function WalletScreen() {
         text2: e?.response?.data?.detail || e.message,
       });
     } finally {
-      setLoading(false);
+      setCheckoutBusy(false);
     }
   };
 
@@ -186,11 +184,6 @@ export default function WalletScreen() {
     }
   };
 
-  const minutesEstimate = (amount: number) => {
-    if (!lastRate || lastRate <= 0) return null;
-    return Math.floor(amount / lastRate);
-  };
-
   const requestIncrease = async () => {
     const amount = Number(increaseAmt);
     if (!amount || amount <= 25000) {
@@ -213,20 +206,15 @@ export default function WalletScreen() {
     }
   };
 
-  return (
-    <View style={styles.wrap}>
-      <AppText style={styles.brand}>Wallet</AppText>
-
-      <Animated.View entering={FadeInDown.duration(380)} style={[styles.balanceCard, balAnim]}>
-        <AppText style={styles.balLabel}>
-          {successFlash ? "Balance updated" : "Spendable (calls & gifts)"}
-        </AppText>
-        <AppText style={styles.bal}>₹{balance.toFixed(2)}</AppText>
-        {lastRate ? (
-          <AppText style={styles.estimate}>
-            ~{Math.floor(balance / lastRate)} min at last rate (₹{lastRate}/min)
+  const Header = (
+    <View>
+      <Animated.View entering={FadeInDown.duration(380)}>
+        <Animated.View style={[styles.balanceCard, balAnim]}>
+          <AppText style={styles.balLabel}>
+            {successFlash ? "Balance updated" : "Spendable (calls & gifts)"}
           </AppText>
-        ) : null}
+          <AppText style={styles.bal}>₹{balance.toFixed(2)}</AppText>
+        </Animated.View>
       </Animated.View>
 
       {isCreator ? (
@@ -236,7 +224,7 @@ export default function WalletScreen() {
           <AppText style={styles.commissionHint}>
             After ~15% platform commission on calls & gifts
           </AppText>
-          <AppText variant="label" style={{ marginTop: 14, color: "rgba(255,255,255,0.65)" }}>
+          <AppText variant="label" style={styles.earnSectionLabel}>
             Withdraw to UPI
           </AppText>
           <TextInput
@@ -279,64 +267,45 @@ export default function WalletScreen() {
           />
         </Animated.View>
       ) : earnings > 0 ? (
-        <AppText variant="caption" style={{ paddingHorizontal: 24 }}>
+        <AppText variant="caption" style={{ paddingHorizontal: 24, marginTop: 4 }}>
           Referral / misc earnings: ₹{earnings.toFixed(2)}
         </AppText>
       ) : null}
 
       <AppText variant="label" style={styles.section}>
-        Recharge packs
+        Add money
       </AppText>
-      <View style={styles.packRow}>
-        {packages.map((p) => {
-          const mins = minutesEstimate(p.amount + (p.bonus || 0));
-          return (
-            <Pressable
-              key={p.id}
-              style={styles.pack}
-              onPress={() => recharge(p.amount, p.id)}
-              disabled={loading}
-            >
-              <AppText variant="caption">{p.label}</AppText>
-              <AppText style={styles.packAmt}>₹{p.amount}</AppText>
-              {p.bonus > 0 && <AppText style={styles.bonus}>+₹{p.bonus}</AppText>}
-              {mins != null && <AppText style={styles.mins}>~{mins} min</AppText>}
-            </Pressable>
-          );
-        })}
+      <View style={styles.rechargeCard}>
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.rechargeTitle}>Recharge wallet</AppText>
+          <AppText variant="caption" style={{ marginTop: 2 }}>
+            Securely via Cashfree. 94% is added to your balance.
+          </AppText>
+        </View>
+        <Ionicons name="chevron-forward" size={22} color={theme.colors.textMuted} />
       </View>
-
-      <AppText variant="label" style={styles.section}>
-        Custom amount
-      </AppText>
-      <View style={styles.customRow}>
-        <TextInput
-          style={styles.customInput}
-          keyboardType="number-pad"
-          placeholder="Amount in ₹"
-          placeholderTextColor={theme.colors.textMuted}
-          value={customAmount}
-          onChangeText={setCustomAmount}
-        />
-        <PrimaryButton
-          label="Pay"
-          loading={loading}
-          onPress={() => recharge(Number(customAmount))}
-          style={{ width: 100 }}
-        />
-      </View>
+      <PrimaryButton
+        label="Recharge wallet"
+        onPress={() => recharge()}
+        loading={checkoutBusy}
+        style={{ marginHorizontal: 24, marginTop: 12 }}
+      />
 
       <PrimaryButton
         label="Verify pending payment"
         onPress={verifyPending}
         variant="ghost"
-        style={{ marginHorizontal: 24, marginTop: 12 }}
+        style={{ marginHorizontal: 24, marginTop: 10 }}
       />
 
       <AppText variant="label" style={styles.section}>
         Ledger
       </AppText>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 20 }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+      >
         {TX_FILTERS.map((f) => (
           <Pressable
             key={f}
@@ -347,13 +316,22 @@ export default function WalletScreen() {
           </Pressable>
         ))}
       </ScrollView>
+      <View style={{ height: 8 }} />
+    </View>
+  );
 
+  return (
+    <View style={styles.wrap}>
       <FlatList
         data={filteredTxs}
         keyExtractor={(i) => i.transaction_id}
+        ListHeaderComponent={Header}
+        stickyHeaderIndices={[]}
         style={{ flex: 1 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={theme.colors.brandLight} />}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, paddingTop: 8 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={theme.colors.brandLight} />
+        }
+        contentContainerStyle={{ paddingBottom: 40, paddingTop: 56 }}
         ListEmptyComponent={
           <AppText variant="caption" style={{ textAlign: "center", marginTop: 24 }}>
             No transactions yet.
@@ -365,6 +343,11 @@ export default function WalletScreen() {
               <AppText style={styles.txType}>{String(item.type || "").replace(/_/g, " ")}</AppText>
               <AppText style={styles.txAmt}>₹{Number(item.amount).toFixed(2)}</AppText>
             </View>
+            {item.description ? (
+              <AppText variant="caption" style={{ marginTop: 2 }}>
+                {item.description}
+              </AppText>
+            ) : null}
             {item.created_at ? (
               <AppText variant="caption" style={{ marginTop: 4 }}>
                 {new Date(item.created_at).toLocaleDateString()}
@@ -378,15 +361,10 @@ export default function WalletScreen() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 64 },
-  brand: {
-    fontFamily: theme.font.display,
-    fontSize: 36,
-    color: theme.colors.brand,
-    paddingHorizontal: 24,
-  },
+  wrap: { flex: 1, backgroundColor: theme.colors.background },
   balanceCard: {
-    margin: 24,
+    marginHorizontal: 24,
+    marginTop: 8,
     marginBottom: 8,
     backgroundColor: theme.colors.brandDark,
     borderRadius: theme.radius.xl,
@@ -394,12 +372,6 @@ const styles = StyleSheet.create({
   },
   balLabel: { color: "rgba(243,239,232,0.7)", fontFamily: theme.font.bodySemi },
   bal: { color: theme.colors.onBrand, fontSize: 40, fontFamily: theme.font.display, marginTop: 4 },
-  estimate: {
-    color: "rgba(243,239,232,0.75)",
-    marginTop: 10,
-    fontFamily: theme.font.body,
-    fontSize: 13,
-  },
   earnCard: {
     marginHorizontal: 24,
     marginBottom: 8,
@@ -417,6 +389,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.body,
     fontSize: 12,
   },
+  earnSectionLabel: { marginTop: 14, color: "rgba(255,255,255,0.65)" },
   wdInput: {
     marginTop: 8,
     height: 48,
@@ -427,46 +400,27 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontFamily: theme.font.body,
   },
-  section: { paddingHorizontal: 24, marginTop: 16, marginBottom: 10 },
-  packRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingHorizontal: 24 },
-  pack: {
-    width: "30%",
-    flexGrow: 1,
-    backgroundColor: theme.colors.backgroundElevated,
-    borderRadius: theme.radius.md,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+  section: { paddingHorizontal: 24, marginTop: 18, marginBottom: 10 },
+  rechargeCard: {
+    flexDirection: "row",
     alignItems: "center",
-  },
-  packAmt: {
-    fontSize: 18,
-    fontFamily: theme.font.bodyBold,
-    color: theme.colors.text,
-    marginTop: 4,
-  },
-  bonus: { fontSize: 11, color: theme.colors.brand, fontFamily: theme.font.bodyBold, marginTop: 2 },
-  mins: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 4, fontFamily: theme.font.body },
-  customRow: { flexDirection: "row", gap: 10, paddingHorizontal: 24, alignItems: "center" },
-  customInput: {
-    flex: 1,
-    height: 52,
-    backgroundColor: theme.colors.backgroundElevated,
-    borderRadius: theme.radius.md,
+    marginHorizontal: 24,
+    padding: 18,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: 14,
-    fontFamily: theme.font.body,
-    color: theme.colors.text,
   },
+  rechargeTitle: { fontFamily: theme.font.bodyBold, fontSize: 17, color: theme.colors.text },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 999,
     backgroundColor: theme.colors.surface,
-    marginRight: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  chipOn: { backgroundColor: theme.colors.brand },
+  chipOn: { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand },
   chipText: { fontFamily: theme.font.bodySemi, fontSize: 12, color: theme.colors.textSecondary },
   chipTextOn: { color: theme.colors.onBrand },
   tx: {
@@ -476,6 +430,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: 14,
     marginBottom: 8,
+    marginHorizontal: 16,
   },
   txRow: { flexDirection: "row", justifyContent: "space-between" },
   txType: { fontFamily: theme.font.bodySemi, color: theme.colors.text, textTransform: "capitalize" },

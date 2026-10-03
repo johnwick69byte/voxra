@@ -7,10 +7,13 @@ const SKIP_KEY = "call_disclaimer_dont_show";
 const MESSAGE =
   "By continuing you confirm you are 18+.\n\n" +
   "• Calls are billed per minute from your wallet\n" +
-  "• Peers may record audio/video — do not share sensitive info\n" +
-  "• Screenshots and screen recording are blocked during calls\n" +
-  "• Harassment or illegal content will result in account bans";
+  "• Whatever either person says or does on the call is their own action and responsibility, not the platform's\n" +
+  "• Abuse, nudity, or illegal activity is strictly prohibited and will result in a ban";
 
+/**
+ * One-time first-call notice. The 18+ / no-abuse policy is also shown inline on
+ * every creator profile, so this is only a confirmation before the first call.
+ */
 export async function ensureCallDisclaimer(): Promise<boolean> {
   try {
     const skip = await AsyncStorage.getItem(SKIP_KEY);
@@ -23,16 +26,9 @@ export async function ensureCallDisclaimer(): Promise<boolean> {
     Alert.alert("Before you call", MESSAGE, [
       { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
       {
-        text: "Don't show again",
-        onPress: async () => {
-          await AsyncStorage.setItem(SKIP_KEY, "1");
-          await AsyncStorage.setItem(KEY, new Date().toISOString());
-          resolve(true);
-        },
-      },
-      {
         text: "I agree",
         onPress: async () => {
+          await AsyncStorage.setItem(SKIP_KEY, "1");
           await AsyncStorage.setItem(KEY, new Date().toISOString());
           resolve(true);
         },

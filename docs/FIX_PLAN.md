@@ -655,7 +655,7 @@ Updated after the fix pass. Legend: **Done** = code changed and validated;
 | P1-5 | Skipped | Author: no problem with the second package |
 | P1-6 | Done | `app/support.tsx` + Profile link + `GET /support/messages` |
 | P2-1 | Skipped | Chat not required |
-| P2-2 | Done | favorites API + `app/favorites.tsx` + creator-profile toggle |
+| P2-2 | Reverted | Favorites removed — Follow already covers "save + notify when online". Backend favorites routes/index and the mobile tab/API were deleted. |
 | P2-3 | Done | `routers/earnings.py` (4 endpoints) + `app/earnings.tsx` |
 | P2-4 | Done | user `GET /support/messages`; admin `mark-read` |
 | P2-5 | Done | wallet `request-increase` + `requests`; admin page + endpoints; mobile inline field |

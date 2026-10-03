@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-import json
 import random
 import uuid
 from typing import Optional
@@ -8,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.database_redis import get_redis, redis_available
 from app.core.security import require_creator, require_user
 from app.core.socket import emit_to_user
 from app.models.schemas import (
@@ -22,7 +20,52 @@ from app.services import presence_service
 
 router = APIRouter(tags=["creators"])
 
-BROWSE_CACHE_TTL = 45
+
+def build_search_text(profile: Optional[dict], user: Optional[dict]) -> str:
+    """Denormalized lowercase haystack for backend text search."""
+    p = profile or {}
+    u = user or {}
+    parts = [
+        u.get("name") or "",
+        u.get("username") or "",
+        p.get("bio") or "",
+        p.get("category") or "",
+        " ".join(p.get("languages") or []),
+    ]
+    return " ".join(part for part in parts if part).lower()
+
+
+async def refresh_search_text(db, user_id: str) -> None:
+    """Rebuild creator_profiles.search_text after a name/username/bio change."""
+    profile = await db.creator_profiles.find_one({"user_id": user_id}, {"_id": 0})
+    if not profile:
+        return
+    u = await db.users.find_one(
+        {"user_id": user_id}, {"_id": 0, "name": 1, "username": 1}
+    )
+    await db.creator_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": {"search_text": build_search_text(profile, u)}},
+    )
+
+
+async def refresh_creator_rating(db, creator_id: str) -> None:
+    """Denormalize avg_rating/review_count onto the profile for fast ranked browse."""
+    rows = await db.reviews.aggregate(
+        [
+            {"$match": {"creator_id": creator_id}},
+            {"$group": {"_id": None, "avg": {"$avg": "$rating"}, "count": {"$sum": 1}}},
+        ]
+    ).to_list(1)
+    if rows:
+        await db.creator_profiles.update_one(
+            {"user_id": creator_id},
+            {"$set": {"avg_rating": round(rows[0]["avg"], 2), "review_count": rows[0]["count"]}},
+        )
+    else:
+        await db.creator_profiles.update_one(
+            {"user_id": creator_id}, {"$set": {"avg_rating": None, "review_count": 0}}
+        )
 
 
 async def _batch_ratings(db, creator_ids: list[str]) -> dict[str, dict]:
@@ -49,92 +92,135 @@ async def _batch_ratings(db, creator_ids: list[str]) -> dict[str, dict]:
     }
 
 
+@router.get("/creators/filters")
+async def browse_filters(user: dict = Depends(require_user)):
+    """Filter options for the Home screen."""
+    from app.models.schemas import CATEGORIES, GENDERS, LANGUAGES
+
+    return {
+        "success": True,
+        "genders": GENDERS,
+        "languages": LANGUAGES,
+        "categories": CATEGORIES,
+    }
+
+
 @router.get("/creators/browse")
 async def browse_creators(
-    sort: str = Query("popular"),
+    sort: str = Query("recommended"),
     q: str = Query(""),
-    cursor: str = Query(""),
-    limit: int = 20,
+    status: str = Query("all"),  # all | active
+    gender: str = Query(""),
+    language: str = Query(""),
+    category: str = Query(""),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=50),
     user: dict = Depends(require_user),
 ):
-    """Cursor pagination: cursor is last user_id from previous page."""
-    limit = min(max(limit, 1), 50)
-    cache_key = f"browse:home:{sort}:{cursor}:{limit}"
-    cached_payload = None
-    if not q:
-        r = get_redis()
-        if r and redis_available():
-            try:
-                cached = await r.get(cache_key)
-                if cached:
-                    cached_payload = json.loads(cached)
-            except Exception:
-                pass
+    """
+    Server-side browse: filtering, search, ranking, and offset pagination.
+
+    Ranking (ACTIVE-first, then the chosen sort):
+      1. Not in DND before DND.
+      2. Online before offline.
+      3. The sort key (rating / price / newest).
+      4. user_id as a stable tiebreaker.
+    """
+    import re
 
     db = get_db()
-    blocked_ids = set()
-    blocked = await db.blocks.find({"blocker_id": user["user_id"]}, {"blocked_id": 1}).to_list(500)
-    blocked_ids = {b["blocked_id"] for b in blocked}
-
-    if cached_payload:
-        creators = [
-            c for c in (cached_payload.get("creators") or []) if c.get("user_id") not in blocked_ids
-        ]
-        return {**cached_payload, "creators": creators}
+    blocked_ids = [
+        b["blocked_id"]
+        for b in await db.blocks.find({"blocker_id": user["user_id"]}, {"blocked_id": 1}).to_list(500)
+    ]
 
     query: dict = {"is_approved": True, "instant_call_enabled": True}
-    if cursor:
-        query["user_id"] = {"$gt": cursor}
+    if status == "active":
+        query["is_online"] = True
+        query["is_dnd"] = {"$ne": True}
+    if gender:
+        query["gender"] = gender
+    if language:
+        query["languages"] = language
+    if category:
+        query["category"] = category
+    if q.strip():
+        query["search_text"] = {"$regex": re.escape(q.strip().lower())}
+    exclude = blocked_ids + [user["user_id"]]
+    query["user_id"] = {"$nin": exclude}
 
-    # Fetch a window; status sort applied after enrichment for ACTIVE-first
-    profiles = await db.creator_profiles.find(query, {"_id": 0}).sort("user_id", 1).limit(limit * 3).to_list(limit * 3)
+    sort_map = {
+        "recommended": [("is_dnd", 1), ("is_online", -1), ("avg_rating", -1), ("review_count", -1), ("user_id", 1)],
+        "rating": [("is_dnd", 1), ("is_online", -1), ("avg_rating", -1), ("review_count", -1), ("user_id", 1)],
+        "newest": [("is_dnd", 1), ("is_online", -1), ("created_at", -1), ("user_id", 1)],
+        "price_asc": [("is_dnd", 1), ("is_online", -1), ("audio_rate_per_minute", 1), ("user_id", 1)],
+        "price_desc": [("is_dnd", 1), ("is_online", -1), ("audio_rate_per_minute", -1), ("user_id", 1)],
+    }
+    sort_spec = sort_map.get(sort, sort_map["recommended"])
+
+    total = await db.creator_profiles.count_documents(query)
+    skip = (page - 1) * limit
+    profiles = (
+        await db.creator_profiles.find(query, {"_id": 0})
+        .sort(sort_spec)
+        .skip(skip)
+        .limit(limit)
+        .to_list(limit)
+    )
+
+    ids = [p["user_id"] for p in profiles]
+    users_list = (
+        await db.users.find(
+            {"user_id": {"$in": ids}, "deleted": {"$ne": True}},
+            {"_id": 0, "user_id": 1, "name": 1, "username": 1, "picture": 1},
+        ).to_list(len(ids))
+        if ids
+        else []
+    )
+    umap = {u["user_id"]: u for u in users_list}
+
+    # One query to know which of these creators are currently on a call.
+    active_calls = (
+        await db.call_records.distinct(
+            "receiver_id",
+            {"receiver_id": {"$in": ids}, "status": {"$in": ["RINGING", "ACCEPTED", "LIVE"]}},
+        )
+        if ids
+        else []
+    )
+    busy_ids = set(active_calls)
+
+    from app.services import presence_service
+
     results = []
     for p in profiles:
-        if p["user_id"] in blocked_ids:
-            continue
-        u = await db.users.find_one({"user_id": p["user_id"], "deleted": {"$ne": True}}, {"_id": 0})
+        u = umap.get(p["user_id"])
         if not u:
             continue
-        if q and q.lower() not in (u.get("name") or "").lower() and q.lower() not in (u.get("username") or "").lower():
-            continue
-        status = await presence_service.get_creator_status(p["user_id"], p)
+        status_str = presence_service.status_from_profile(
+            p, is_online_now=bool(p.get("is_online")), busy=p["user_id"] in busy_ids
+        )
         results.append(
             {
-                **{k: v for k, v in p.items()},
+                **p,
                 "name": u.get("name"),
                 "username": u.get("username"),
                 "picture": u.get("picture") or (p.get("images") or [None])[0],
-                "status": status,
+                "status": status_str,
+                "avg_rating": p.get("avg_rating"),
+                "review_count": p.get("review_count", 0),
             }
         )
 
-    if sort == "price_asc":
-        results.sort(key=lambda x: x.get("audio_rate_per_minute") or 999)
-    elif sort == "price_desc":
-        results.sort(key=lambda x: x.get("audio_rate_per_minute") or 0, reverse=True)
-    else:
-        order = {"ACTIVE": 0, "BUSY": 1, "OFFLINE": 2, "DND": 3}
-        results.sort(key=lambda x: (order.get(x.get("status"), 9), x.get("user_id") or ""))
-
-    page = results[:limit]
-    ratings = await _batch_ratings(db, [c["user_id"] for c in page])
-    for item in page:
-        rstats = ratings.get(item["user_id"], {})
-        item["avg_rating"] = rstats.get("avg_rating")
-        item["review_count"] = rstats.get("review_count", 0)
-
-    next_cursor = page[-1]["user_id"] if len(page) == limit else None
-    response = {"success": True, "creators": page, "next_cursor": next_cursor, "has_more": bool(next_cursor)}
-
-    if not q:
-        r = get_redis()
-        if r and redis_available():
-            try:
-                await r.setex(cache_key, BROWSE_CACHE_TTL, json.dumps(response, default=str))
-            except Exception:
-                pass
-
-    return response
+    has_more = skip + len(results) < total
+    return {
+        "success": True,
+        "creators": results,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "has_more": has_more,
+    }
 
 
 def _onboarding_payload(user: dict, profile: Optional[dict], next_step: str) -> dict:

@@ -246,10 +246,6 @@ class WithdrawalRequest(BaseModel):
     account_name: Optional[str] = None
 
 
-class FavoriteRequest(BaseModel):
-    model_id: str
-
-
 class ReportUserRequest(BaseModel):
     reported_user_id: str
     reason: str = "abuse"

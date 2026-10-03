@@ -40,6 +40,7 @@ export const authAPI = {
 
 export const creatorsAPI = {
   browse: (params?: Record<string, unknown>) => api.get("/creators/browse", { params }),
+  filters: () => api.get("/creators/filters"),
   get: (id: string) => api.get(`/creators/${id}`),
   status: (id: string) => api.get(`/creators/${id}/status`),
   follow: (id: string) => api.post(`/follow/${id}`),
@@ -58,13 +59,6 @@ export const creatorsAPI = {
     api.post("/profile/verification/selfie", { verification_id, image_base64 }),
   onboardingStatus: () => api.get("/profile/onboarding-status"),
   block: (userId: string) => api.post(`/users/${userId}/block`),
-};
-
-export const favoritesAPI = {
-  add: (modelId: string) => api.post("/favorites/add", { model_id: modelId }),
-  remove: (modelId: string) => api.post("/favorites/remove", { model_id: modelId }),
-  list: () => api.get("/favorites"),
-  check: (modelId: string) => api.get(`/favorites/check/${modelId}`),
 };
 
 export const moderationAPI = {
@@ -132,8 +126,8 @@ export const walletAPI = {
   transactions: () => api.get("/wallet/transactions"),
   initiate: (amount: number, package_id?: string) =>
     api.post("/wallet/recharge/initiate", { amount, package_id }),
-  verifyPending: (order_id: string) =>
-    api.post("/wallet/recharge/verify-pending", { order_id }),
+  verifyPending: (order_id?: string) =>
+    api.post("/wallet/recharge/verify-pending", order_id ? { order_id } : {}),
   withdraw: (amount: number, upi_id: string, account_name?: string) =>
     api.post("/wallet/withdraw", { amount, upi_id, account_name }),
 };

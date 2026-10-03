@@ -299,6 +299,9 @@ async def verify_otp(
                     "instant_call_enabled": True,
                     "is_dnd": False,
                     "is_approved": False,
+                    "is_online": False,
+                    "avg_rating": None,
+                    "review_count": 0,
                     "verification_status": "pending_profile",
                     "created_at": datetime.now(timezone.utc),
                 }

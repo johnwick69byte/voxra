@@ -57,6 +57,9 @@ services:
         sync: false
       - key: FIREBASE_CREDENTIALS_PATH
         sync: false
+      # Alternative to the Secret File above: paste the whole service-account JSON.
+      - key: FIREBASE_CREDENTIALS_JSON
+        sync: false
       - key: MESSAGECENTRAL_CUSTOMER_ID
         sync: false
       - key: MESSAGECENTRAL_API_KEY

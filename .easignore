@@ -1,0 +1,43 @@
+# .easignore — files uploaded to EAS Build.
+# EAS uses this INSTEAD of .gitignore when present. Keep it in sync with
+# .gitignore, except for files that are ignored by git but REQUIRED by the
+# mobile build (client Firebase config).
+#
+# Rationale: google-services.json is CLIENT config that ships inside the APK
+# anyway; it is not a server secret. The real secret (firebase-adminsdk.json)
+# stays ignored below.
+
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+!.env.example
+dist/
+build/
+.expo/
+*.egg-info/
+.DS_Store
+coverage/
+.turbo/
+*.log
+web-build/
+ios/
+android/
+!apps/mobile/plugins/
+.idea/
+.vscode/
+*.apk
+*.aab
+
+# Secrets — never upload server keys
+**/firebase-adminsdk.json
+**/secrets/
+apps/api/google-services.json
+**/GoogleService-Info.plist
+*.pem
+serviceAccount*.json
+!apps/mobile/google-services.json

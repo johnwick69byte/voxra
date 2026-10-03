@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View, ActivityIndicator, Platform } from "react-native";
@@ -31,6 +31,7 @@ export default function RootLayout() {
   const setIncoming = useCallStore((s) => s.setIncoming);
   const setActiveCall = useCallStore((s) => s.setActiveCall);
   const router = useRouter();
+  const callDedupRef = useRef<string | null>(null);
 
   useEffect(() => {
     hydrate();
@@ -100,6 +101,15 @@ export default function RootLayout() {
     })();
 
     const onIncoming = async (payload: any) => {
+      // Dedup: a socket incoming_call and a pending-call push on launch can both
+      // fire for the same call. Ignore duplicates within a short window.
+      if (payload?.call_id) {
+        if (callDedupRef.current === payload.call_id) return;
+        callDedupRef.current = payload.call_id;
+        setTimeout(() => {
+          if (callDedupRef.current === payload.call_id) callDedupRef.current = null;
+        }, 5000);
+      }
       setIncoming(payload);
       if (Platform.OS === "ios") {
         await reportIncomingCallToCallKit(payload);

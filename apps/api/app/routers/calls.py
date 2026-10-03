@@ -147,12 +147,14 @@ async def gift(call_id: str, body: GiftRequest, user: dict = Depends(require_use
         },
     )
     from app.core.socket import emit_to_user
+    creator_wallet = await wallet_service.get_wallet(call["receiver_id"])
     payload = {
         "call_id": call_id,
         "amount": amount,
         "earnings": commission["model_earnings"],
         "commission_rate": commission["commission_rate"],
         "balance": updated.get("balance", 0),
+        "earnings_balance": creator_wallet.get("earnings_balance", 0),
     }
     await emit_to_user(call["receiver_id"], "gift_received", payload)
     await emit_to_user(call["caller_id"], "gift_sent", payload)

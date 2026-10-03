@@ -29,15 +29,28 @@ def _ensure_firebase() -> bool:
     if _firebase_ready:
         return True
     settings = get_settings()
-    if not settings.firebase_credentials_path:
-        logger.warning("Firebase not configured — push notifications are no-ops")
+    if not settings.firebase_credentials_path and not settings.firebase_credentials_json:
+        logger.warning(
+            "Firebase not configured — push notifications are no-ops. Set "
+            "FIREBASE_CREDENTIALS_PATH (Secret File) or FIREBASE_CREDENTIALS_JSON."
+        )
         return False
     try:
+        import json
+
         import firebase_admin
         from firebase_admin import credentials
 
         if not firebase_admin._apps:
-            cred = credentials.Certificate(settings.firebase_credentials_path)
+            if settings.firebase_credentials_json:
+                # JSON pasted directly into an env var (Render/any host).
+                info = json.loads(settings.firebase_credentials_json)
+                # Render may store newlines escaped; fix the private key.
+                if "private_key" in info and "\\n" in info["private_key"]:
+                    info["private_key"] = info["private_key"].replace("\\n", "\n")
+                cred = credentials.Certificate(info)
+            else:
+                cred = credentials.Certificate(settings.firebase_credentials_path)
             firebase_admin.initialize_app(cred)
         _firebase_ready = True
         return True
@@ -92,7 +105,9 @@ async def send_push(
         apns=apns,
     )
     try:
-        messaging.send(message)
+        import asyncio
+
+        await asyncio.to_thread(messaging.send, message)
         await _incr_metric("metrics:fcm_ok")
         return True
     except Exception:

@@ -1,21 +1,29 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
+import { Asset } from "expo-asset";
 
 let active: AudioPlayer | null = null;
 
-const RING_URI =
-  "https://actions.google.com/sounds/v1/alarms/phone_alerts_and_rings.ogg";
+/**
+ * Loop the ringback/ringtone.
+ *
+ * Uses the bundled asset for reliable offline ringing.
+ */
+const RING_SOURCE = require("../../assets/sounds/ringing.mp3");
 
 export async function playRingtone(loop = true) {
   try {
     await stopRingtone();
+    // Pre-load the asset
+    const asset = Asset.fromModule(require("../../assets/sounds/ringing.mp3"));
+    await asset.downloadAsync();
     await setAudioModeAsync({
       playsInSilentMode: true,
       shouldPlayInBackground: true,
       interruptionMode: "duckOthers",
     });
-    const player = createAudioPlayer({ uri: RING_URI });
+    const player = createAudioPlayer(RING_SOURCE);
     player.loop = loop;
-    player.volume = 0.85;
+    player.volume = 0.9;
     player.play();
     active = player;
   } catch (e) {

@@ -27,6 +27,10 @@ android/
 # Secrets — never commit
 **/firebase-adminsdk.json
 **/secrets/
+# One-line FIREBASE_CREDENTIALS_JSON output (contains the private key)
+apps/api/scripts/firebase_env_value.txt
+apps/api/**/*firebase*env*.txt
+apps/**/tmp_firebase_env.txt
 apps/api/google-services.json
 apps/mobile/google-services.json
 **/GoogleService-Info.plist

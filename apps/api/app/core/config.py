@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     agora_app_certificate: str = ""
 
     firebase_credentials_path: str = ""
+    # Alternative to firebase_credentials_path: the whole service-account JSON as a
+    # string env var. Use one or the other. The JSON wins only if the path is unset.
+    firebase_credentials_json: str = ""
 
     trustope_user_token: str = ""
     trustope_redirect_url: str = "http://localhost:8000/api/wallet/recharge/return"

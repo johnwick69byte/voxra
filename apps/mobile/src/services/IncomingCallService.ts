@@ -32,10 +32,12 @@ export async function showIncomingCallNotification(data: Record<string, any>) {
   const channelId = await notifee.createChannel({
     id: "incoming_calls_v1",
     name: "Incoming Calls",
-    importance: AndroidImportance.HIGH,
+    importance: AndroidImportance.MAX,
     sound: "default",
     vibration: true,
     vibrationPattern: [300, 500, 300, 500],
+    bypassDnd: true,
+    lights: true,
   });
 
   const callerName = data.caller_name || data.callerName || "Someone";
@@ -58,16 +60,17 @@ export async function showIncomingCallNotification(data: Record<string, any>) {
     },
     android: {
       channelId,
-      importance: AndroidImportance.HIGH,
+      importance: AndroidImportance.MAX,
       category: AndroidCategory.CALL,
       visibility: AndroidVisibility.PUBLIC,
       ongoing: true,
       autoCancel: false,
+      loopSound: true,
       lights: [AndroidColor.GREEN, 300, 600],
-      fullScreenAction: { id: "full_screen" },
-      pressAction: { id: "default" },
+      fullScreenAction: { id: "full_screen", launchActivity: "default" },
+      pressAction: { id: "default", launchActivity: "default" },
       actions: [
-        { title: "Accept", pressAction: { id: "accept" } },
+        { title: "Accept", pressAction: { id: "accept", launchActivity: "default" } },
         { title: "Decline", pressAction: { id: "decline" } },
       ],
       timeoutAfter: 45000,

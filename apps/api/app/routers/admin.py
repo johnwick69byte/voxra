@@ -719,11 +719,39 @@ async def system_health(admin: dict = Depends(require_admin)):
     except Exception:
         pass
     swept = await call_service.sweep_stuck_calls()
+
+    # Firebase / FCM diagnostic — tells you whether push will actually send.
+    settings = get_settings()
+    firebase_ok = False
+    firebase_project = None
+    firebase_error = None
+    try:
+        from app.services.push_service import _ensure_firebase
+
+        firebase_ok = _ensure_firebase()
+        if firebase_ok:
+            import firebase_admin
+
+            firebase_project = firebase_admin.get_app().project_id
+    except Exception as e:
+        firebase_error = str(e)
+
     return {
         "success": True,
         "redis_ok": redis_ok,
         "socket_connections": len(sid_to_user_id),
         "stuck_calls_swept": swept,
+        "firebase": {
+            "configured": bool(
+                settings.firebase_credentials_path or settings.firebase_credentials_json
+            ),
+            "source": "json_env"
+            if settings.firebase_credentials_json
+            else ("file" if settings.firebase_credentials_path else None),
+            "ready": firebase_ok,
+            "project_id": firebase_project,
+            "error": firebase_error,
+        },
         "ts": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -733,6 +761,29 @@ async def audit_log(admin: dict = Depends(require_admin)):
     db = get_db()
     items = await db.admin_audit.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
     return {"success": True, "audit": items}
+
+
+@router.post("/push-test")
+async def push_test(body: dict | None = None, admin: dict = Depends(require_admin)):
+    """Send a test push to a user (or a raw token) to verify FCM end-to-end."""
+    db = get_db()
+    user_id = (body or {}).get("user_id")
+    raw_token = (body or {}).get("token")
+    token = raw_token
+    if user_id and not token:
+        doc = await db.push_tokens.find_one({"user_id": user_id}, {"_id": 0})
+        token = (doc or {}).get("device_push_token")
+    if not token:
+        raise HTTPException(400, "No push token found (pass user_id or token)")
+    ok = await push_service.send_push(
+        token,
+        title="Simple Talk test",
+        body="If you see this, FCM is working.",
+        data={"type": "push_test"},
+        channel_id="app_notifications",
+    )
+    await _audit(admin["user_id"], "push_test", {"user_id": user_id, "ok": ok})
+    return {"success": ok, "sent_to": user_id or "raw-token"}
 
 
 # ── Financial ────────────────────────────────────────────────────────────────

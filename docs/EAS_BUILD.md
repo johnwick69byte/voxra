@@ -1,45 +1,36 @@
 # EAS / Dev client build
 
+> Full, current instructions (profiles, env, icons, store) are in
+> [BUILD_AND_RELEASE.md](./BUILD_AND_RELEASE.md). This file is a quick reference.
+
 ## Why
-`react-native-agora`, `@notifee/react-native`, `@react-native-firebase/*`, and `react-native-callkeep` require a **custom native build**. Expo Go will only do signaling.
-
-## One-time setup
-```bash
-cd apps/mobile
-npx eas-cli login
-npx eas-cli init   # set projectId in app.json extra.eas.projectId
-```
-
-Place secrets (do not commit):
-- `google-services.json` (Android)
-- `GoogleService-Info.plist` (iOS)
-- API `.env`: `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE`, `FIREBASE_CREDENTIALS_PATH`
-
-Mobile env (EAS secrets or `eas.json` env):
-```
-EXPO_PUBLIC_API_URL=https://voxra-dkfe.onrender.com/api
-EXPO_PUBLIC_AGORA_APP_ID=...
-```
+`react-native-agora`, `@notifee/react-native`, `@react-native-firebase/*`, and
+`react-native-callkeep` require a **custom native build**. Expo Go will only do
+signaling.
 
 ## Profiles (`eas.json`)
-| Profile | Use |
-|---------|-----|
-| `development` | Dev client + internal distribution |
-| `preview` | Internal APK QA |
-| `production` | Store builds (`autoIncrement: true`) |
+| Profile | Output | Use |
+|---------|--------|-----|
+| `development` | APK (dev client) | Hot reload + native modules |
+| `preview` | APK | Internal QA |
+| `production` | **AAB** | Play Store |
+| `production-apk` | APK | Production code, direct install/QA |
+
+All profiles carry the public `EXPO_PUBLIC_*` env values inline.
 
 ## Build
 ```bash
-# Dev client
-npx eas build --profile development --platform android
+cd apps/mobile
 
-# Preview APK
-npx eas build --profile preview --platform android
+# Internal test APK
+eas build -p android --profile preview
 
-# Production (store)
-npx eas build --profile production --platform all
-npx eas submit --profile production --platform android
-npx eas submit --profile production --platform ios
+# Production APK (test) / AAB (store)
+eas build -p android --profile production-apk
+eas build -p android --profile production
+
+# Submit the AAB
+eas submit -p android --profile production
 ```
 
 Local native:
@@ -49,17 +40,11 @@ npx expo run:android
 ```
 
 ## Production API env checklist
-```
-ENVIRONMENT=production
-ALLOW_ADMIN_BOOTSTRAP=false
-JWT_SECRET=...
-ADMIN_JWT_SECRET=...
-MESSAGECENTRAL_*  # real OTP
-AGORA_*
-FIREBASE_CREDENTIALS_PATH=...
-TRUSTOPE_*
-IMAGEKIT_*
-```
+See §5 of [BUILD_AND_RELEASE.md](./BUILD_AND_RELEASE.md) for the complete,
+current list (includes `CASHFREE_*` and `RECHARGE_*`).
 
 ## Device QA
-Follow [FCM_DEVICE_QA.md](./FCM_DEVICE_QA.md), [STORE_ASSETS.md](./STORE_ASSETS.md), and [LAUNCH_CHECKLIST.md](./LAUNCH_CHECKLIST.md).
+Follow [CALL_FLOW_TESTS.md](./CALL_FLOW_TESTS.md),
+[FCM_DEVICE_QA.md](./FCM_DEVICE_QA.md),
+[STORE_ASSETS.md](./STORE_ASSETS.md), and
+[LAUNCH_CHECKLIST.md](./LAUNCH_CHECKLIST.md).

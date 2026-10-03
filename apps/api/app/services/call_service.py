@@ -119,6 +119,17 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
             f"Insufficient balance. Minimum ₹{min_balance:.2f} required (₹{rate:.2f}/min)",
         )
 
+    # A caller already on a live/ringing call cannot start another.
+    caller_active = await db.call_records.find_one(
+        {
+            "caller_id": caller["user_id"],
+            "status": {"$in": ["RINGING", "ACCEPTED", "LIVE"]},
+        },
+        {"_id": 0, "call_id": 1},
+    )
+    if caller_active:
+        raise HTTPException(409, "You are already on a call")
+
     # Redis atomic ring lock (Mongo fallback)
     r = get_redis()
     call_id = f"call_{uuid.uuid4().hex[:12]}"
@@ -159,7 +170,13 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
         "commission_amount": 0.0,
         "model_earnings": 0.0,
     }
-    await db.call_records.insert_one(call)
+    try:
+        await db.call_records.insert_one(call)
+    except Exception:
+        # Never leave the creator locked if the call row could not be created.
+        await _clear_ring_lock(receiver_id, call_id)
+        logger.exception("call insert failed for %s", call_id)
+        raise HTTPException(500, "Could not start the call, please try again")
 
     # Push data-only incoming call
     push_doc = await db.push_tokens.find_one({"user_id": receiver_id}, {"_id": 0})
@@ -180,7 +197,7 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
             },
             data_only=True,
             ttl_seconds=settings.call_ring_timeout_seconds,
-            channel_id="incoming_calls",
+            channel_id="incoming_calls_v1",
         )
 
     payload = {

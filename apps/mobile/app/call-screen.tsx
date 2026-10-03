@@ -13,6 +13,7 @@ import {
 import { useLocalSearchParams, useRouter, useNavigation } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 import { callsAPI, walletAPI } from "../src/services/api";
 import { socketService } from "../src/services/socket";
@@ -90,6 +91,11 @@ export default function CallScreen() {
   const [earningsBalance, setEarningsBalance] = useState<number | null>(null);
   const [giftFx, setGiftFx] = useState<GiftFx[]>([]);
   const [isLive, setIsLive] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [speaker, setSpeaker] = useState(false);
+  const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastHandledCallIdRef = useRef<string | null>(null);
 
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const billTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -122,10 +128,29 @@ export default function CallScreen() {
     if (timer.current) clearInterval(timer.current);
     if (billTimer.current) clearInterval(billTimer.current);
     if (graceTimer.current) clearTimeout(graceTimer.current);
+    if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
+    if (watchdogRef.current) clearTimeout(watchdogRef.current);
     timer.current = null;
     billTimer.current = null;
     graceTimer.current = null;
+    controlsTimeout.current = null;
+    watchdogRef.current = null;
   };
+
+  const showControlsTemporarily = useCallback(() => {
+    setControlsVisible(true);
+    if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
+    controlsTimeout.current = setTimeout(() => setControlsVisible(false), 5000);
+  }, []);
+
+  const toggleControls = useCallback(() => {
+    setControlsVisible((v) => {
+      const next = !v;
+      if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
+      if (next) controlsTimeout.current = setTimeout(() => setControlsVisible(false), 5000);
+      return next;
+    });
+  }, []);
 
   const startTimers = (bill: boolean) => {
     if (timer.current) return;
@@ -440,10 +465,13 @@ export default function CallScreen() {
       const earn = Number(p.earnings || 0);
       setGiftsTotal((t) => t + amt);
       setEarningsSession((t) => t + earn);
+      if (p.earnings_balance != null) setEarningsBalance(Number(p.earnings_balance));
       pushGiftFx(amt, "received");
     };
     const onGiftSent = (p: any) => {
-      if (typeof p.balance === "number") setBilling(p.balance, totalBilled);
+      if (typeof p.balance === "number") {
+        setBilling(p.balance, useCallStore.getState().totalBilled);
+      }
       pushGiftFx(Number(p.amount || 0), "sent");
     };
 
@@ -499,9 +527,51 @@ export default function CallScreen() {
     }
   };
 
+  const toggleSpeaker = async () => {
+    const next = !speaker;
+    setSpeaker(next);
+    try {
+      await engineRef.current?.setEnableSpeakerphone(next);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const switchCamera = async () => {
+    if (callType !== "VIDEO") return;
+    try {
+      await engineRef.current?.switchCamera();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // If the caller never receives call_accepted, leave after a watchdog window.
+  useEffect(() => {
+    if (role !== "caller") return;
+    if (!status.startsWith("Ring")) return;
+    watchdogRef.current = setTimeout(async () => {
+      if (endingRef.current || !statusRef.current.startsWith("Ring")) return;
+      try {
+        const res = await callsAPI.active();
+        const st = res.data?.call?.status;
+        if (!st || !["RINGING", "ACCEPTED", "LIVE"].includes(st)) {
+          await leave({ review: false });
+        }
+      } catch {
+        /* keep waiting; server timeout will settle it */
+      }
+    }, 12000);
+    return () => {
+      if (watchdogRef.current) clearTimeout(watchdogRef.current);
+    };
+  }, [role, status, leave]);
+
   const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
   const ss = String(seconds % 60).padStart(2, "0");
   const showVideo = callType === "VIDEO" && isAgoraAvailable && mediaReady;
+
+  const insets = useSafeAreaInsets();
 
   return (
     <View style={styles.root}>
@@ -512,7 +582,7 @@ export default function CallScreen() {
           ) : (
             <LinearGradient colors={[...theme.gradients.call]} style={StyleSheet.absoluteFill} />
           )}
-          {videoOn && RtcSurfaceView ? (
+          {videoOn && remoteUid != null && RtcSurfaceView ? (
             <View style={styles.localPip}>
               <RtcSurfaceView style={StyleSheet.absoluteFill} canvas={{ uid: 0 }} zOrderMediaOverlay />
             </View>
@@ -522,91 +592,127 @@ export default function CallScreen() {
         <LinearGradient colors={[...theme.gradients.call]} style={StyleSheet.absoluteFill} />
       )}
 
-      <View style={styles.overlay}>
-        <Text style={styles.brand}>{APP_NAME}</Text>
+      {/* Tap anywhere (outside controls) to toggle the control overlay. */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={toggleControls} />
+
+      <View style={styles.overlay} pointerEvents="box-none">
+        {controlsVisible ? (
+          <>
+            <Text style={[styles.brand, { top: insets.top + 12 }]}>{APP_NAME}</Text>
+            <Text style={styles.peer}>{peerName}</Text>
+            <Text style={styles.status}>{status}</Text>
+            <Text style={styles.timer}>
+              {mm}:{ss}
+            </Text>
+            <Text style={styles.meta}>
+              {callType} · billed ₹{totalBilled.toFixed(0)}
+              {role === "caller"
+                ? ` · wallet ₹${balance.toFixed(0)}`
+                : earningsBalance != null
+                  ? ` · earnings ₹${earningsBalance.toFixed(0)}`
+                  : ""}
+              {role === "receiver" && giftsTotal > 0 ? ` · gifts ₹${giftsTotal}` : ""}
+              {!IS_PROD && !isAgoraAvailable ? " · signaling" : ""}
+            </Text>
+            {lowBalance && (
+              <View style={styles.warn}>
+                <Text style={styles.warnText}>Low balance — ₹{balance.toFixed(0)}</Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <Pressable onPress={toggleControls} style={styles.hiddenHint}>
+            <Ionicons name="chevron-up" size={22} color="rgba(255,255,255,0.6)" />
+          </Pressable>
+        )}
+
         {reconnecting ? (
           <View style={styles.banner}>
             <Text style={styles.bannerText}>Reconnecting…</Text>
           </View>
         ) : null}
-        {giftFx.map((g) => (
-          <GiftBurst
-            key={g.id}
-            gift={g}
-            onDone={(id) => setGiftFx((prev) => prev.filter((x) => x.id !== id))}
-          />
-        ))}
-        <Text style={styles.peer}>{peerName}</Text>
-        <Text style={styles.status}>{status}</Text>
-        <Text style={styles.timer}>
-          {mm}:{ss}
-        </Text>
-        <Text style={styles.meta}>
-          {callType} · billed ₹{totalBilled.toFixed(0)}
-          {role === "caller"
-            ? ` · wallet ₹${balance.toFixed(0)}`
-            : earningsBalance != null
-              ? ` · earnings ₹${earningsBalance.toFixed(0)}`
-              : ""}
-          {role === "receiver" && giftsTotal > 0 ? ` · gifts ₹${giftsTotal}` : ""}
-          {!IS_PROD && !isAgoraAvailable ? " · signaling" : ""}
-        </Text>
-        {lowBalance && (
-          <View style={styles.warn}>
-            <Text style={styles.warnText}>Low balance — ₹{balance.toFixed(0)}</Text>
-          </View>
-        )}
 
-        <View style={styles.controls}>
-          <CircleBtn
-            icon={muted ? "mic-off" : "mic"}
-            label={muted ? "Unmute" : "Mute"}
-            onPress={toggleMute}
-          />
-          {callType === "VIDEO" && (
+        {controlsVisible ? (
+          <View style={[styles.controls, { bottom: Math.max(insets.bottom, 16) + 8 }]}>
             <CircleBtn
-              icon={videoOn ? "videocam" : "videocam-off"}
-              label={videoOn ? "Cam off" : "Cam on"}
-              onPress={toggleVideo}
-            />
-          )}
-          {role === "caller" ? (
-            <CircleBtn
-              icon="gift"
-              label="Gift"
+              icon={muted ? "mic-off" : "mic"}
+              label={muted ? "Unmute" : "Mute"}
               onPress={() => {
-                if (!isLive) {
-                  Toast.show({ type: "info", text1: "Gifts available during live call" });
-                  return;
-                }
-                setGiftOpen(true);
+                showControlsTemporarily();
+                toggleMute();
               }}
-              color="rgba(232,168,124,0.35)"
             />
-          ) : (
             <CircleBtn
-              icon="sparkles"
-              label={earningsSession > 0 ? `₹${earningsSession.toFixed(0)}` : "Gifts"}
-              onPress={() =>
-                Toast.show({
-                  type: "info",
-                  text1:
-                    giftsTotal > 0
-                      ? `Gifts ₹${giftsTotal} · you earned ₹${earningsSession.toFixed(0)}`
-                      : "No gifts yet",
-                })
-              }
-              color="rgba(232,168,124,0.35)"
+              icon={speaker ? "volume-high" : "volume-medium"}
+              label={speaker ? "Speaker on" : "Speaker"}
+              onPress={() => {
+                showControlsTemporarily();
+                toggleSpeaker();
+              }}
+              color={speaker ? "rgba(45,212,191,0.35)" : undefined}
             />
-          )}
-          <CircleBtn
-            icon="call"
-            label="End"
-            onPress={confirmEnd}
-            color={theme.colors.callRed}
-          />
-        </View>
+            {callType === "VIDEO" && (
+              <>
+                <CircleBtn
+                  icon={videoOn ? "videocam" : "videocam-off"}
+                  label={videoOn ? "Cam off" : "Cam on"}
+                  onPress={() => {
+                    showControlsTemporarily();
+                    toggleVideo();
+                  }}
+                />
+                <CircleBtn
+                  icon="camera-reverse"
+                  label="Flip"
+                  onPress={() => {
+                    showControlsTemporarily();
+                    switchCamera();
+                  }}
+                />
+              </>
+            )}
+            {role === "caller" ? (
+              <CircleBtn
+                icon="gift"
+                label="Gift"
+                onPress={() => {
+                  showControlsTemporarily();
+                  if (!isLive) {
+                    Toast.show({ type: "info", text1: "Gifts available during live call" });
+                    return;
+                  }
+                  setGiftOpen(true);
+                }}
+                color="rgba(232,168,124,0.35)"
+              />
+            ) : (
+              <CircleBtn
+                icon="sparkles"
+                label={earningsSession > 0 ? `₹${earningsSession.toFixed(0)}` : "Gifts"}
+                onPress={() =>
+                  Toast.show({
+                    type: "info",
+                    text1:
+                      giftsTotal > 0
+                        ? `Gifts ₹${giftsTotal} · you earned ₹${earningsSession.toFixed(0)}`
+                        : "No gifts yet",
+                  })
+                }
+                color="rgba(232,168,124,0.35)"
+              />
+            )}
+            <CircleBtn icon="call" label="End" onPress={confirmEnd} color={theme.colors.callRed} />
+          </View>
+        ) : null}
       </View>
+
+      {giftFx.map((g) => (
+        <GiftBurst
+          key={g.id}
+          gift={g}
+          onDone={(id) => setGiftFx((prev) => prev.filter((x) => x.id !== id))}
+        />
+      ))}
 
       <Modal visible={giftOpen} transparent animationType="slide" onRequestClose={() => setGiftOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setGiftOpen(false)}>
@@ -633,7 +739,6 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   brand: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 64 : 40,
     fontFamily: theme.font.display,
     color: "#F7F4EF",
     fontSize: 20,
@@ -647,7 +752,13 @@ const styles = StyleSheet.create({
     marginTop: 24,
     fontVariant: ["tabular-nums"],
   },
-  meta: { color: theme.colors.accent, marginTop: 8, fontFamily: theme.font.bodySemi },
+  hiddenHint: {
+    position: "absolute",
+    bottom: 24,
+    alignSelf: "center",
+    padding: 10,
+  },
+  meta: { color: theme.colors.accent, marginTop: 8, fontFamily: theme.font.bodySemi, textAlign: "center" },
   warn: {
     marginTop: 16,
     backgroundColor: "rgba(217,119,6,0.25)",
@@ -676,23 +787,22 @@ const styles = StyleSheet.create({
   controls: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: 18,
+    gap: 14,
     position: "absolute",
-    bottom: 40,
-    left: 16,
-    right: 16,
+    left: 12,
+    right: 12,
     paddingVertical: 16,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     borderRadius: 28,
     backgroundColor: "rgba(7,13,12,0.55)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
   },
-  circleWrap: { alignItems: "center", gap: 6, flex: 1 },
+  circleWrap: { alignItems: "center", gap: 6 },
   circle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,

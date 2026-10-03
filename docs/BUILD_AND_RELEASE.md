@@ -190,7 +190,19 @@ Current files in `apps/mobile/assets/`:
 | `icon.png` | 1024×1024 (no alpha) | 1024×1024 | Replace with brand icon |
 | `adaptive-icon.png` | 1024×1024 (foreground, safe centre 66%) | 1024×1024 | Replace |
 | `splash.png` | 1284×1284 (contain) | 1284×1284 | Replace |
-| `notification-icon.png` | 96×96 white on transparent | 1024×1024 copy | **Replace** (small monochrome glyph) |
+
+Notification icons are **generated, not hand-drawn** — see
+`assets/notification/<dpi>/ic_notification.png` (24/36/48/72/96 px, white
+Material "call" glyph on transparent). Regenerate at any time with:
+
+```powershell
+python apps\mobile\scripts\gen_notification_icons.py
+```
+
+They are installed into the native project by
+`plugins/withAndroidNotificationIcon.js`, which also sets the manifest's
+`android.default_notification_icon` / `..._color`. No action needed unless you
+want a different glyph.
 
 Brand palette (from `src/theme/tokens.ts`):
 - Deep forest background `#070D0C` / `#0B1F1A`
@@ -291,8 +303,35 @@ VITE_API_URL=https://voxra-dkfe.onrender.com/api
       `firebase-adminsdk.json` (Option A) **or** `FIREBASE_CREDENTIALS_JSON`
       env var (Option B)
 - [ ] Set the API env vars above in Render (`CASHFREE_*` especially)
-- [ ] Replace the 4 icon/splash images in `apps/mobile/assets/`
+- [ ] Replace the 3 icon/splash images in `apps/mobile/assets/`
+      (`notification-icon.png` is generated — see §4)
 - [ ] `eas build -p android --profile production-apk` → install on 2 phones
 - [ ] Run the call matrix in `docs/CALL_FLOW_TESTS.md`
 - [ ] When green: `eas build -p android --profile production` (AAB)
 - [ ] `eas submit -p android --profile production`
+
+---
+
+## 7. Removed app-config keys (do not re-add)
+
+Current Expo SDK rejects these at prebuild, so they must stay out of
+`app.json` / `app.config.js`:
+
+| Removed key | Why | Replacement |
+|-------------|-----|-------------|
+| `expo.notification` | `withAndroidDangerousBaseMod` hard-errors: *"The `notification` property in app config is no longer supported. Use the `expo-notifications` config plugin instead."* | `plugins/withAndroidNotificationIcon.js` copies the drawables and sets `android.default_notification_icon` / `..._color` in the manifest |
+| `android.edgeToEdgeEnabled` | Warned as obsolete — Android 16 makes edge-to-edge mandatory | Nothing; edge-to-edge is now the default |
+
+If you ever add `expo-notifications`, delete
+`plugins/withAndroidNotificationIcon.js` and use its `icon`/`color` options
+instead.
+
+A prebuild warning that is **safe to ignore**:
+`For Android 8.0 and above, it is necessary to set the notification icon...`
+— it is emitted unconditionally by Expo's notifications base mod whenever the
+`notification` config key is absent, even though the manifest default is
+correctly set by the plugin above. Confirm the result with:
+
+```powershell
+Select-String -Path apps\mobile\android\app\src\main\AndroidManifest.xml -Pattern 'default_notification'
+```

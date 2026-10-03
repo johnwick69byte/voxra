@@ -41,6 +41,7 @@ export async function startCallForegroundService(opts: {
       data: { type: "ongoing_call", call_id: opts.callId },
       android: {
         channelId,
+        smallIcon: "ic_notification",
         asForegroundService: true,
         category: AndroidCategory.CALL,
         ongoing: true,

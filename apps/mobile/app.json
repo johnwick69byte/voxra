@@ -30,7 +30,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B1F1A"
       },
-      "edgeToEdgeEnabled": true,
       "jsEngine": "hermes",
       "permissions": [
         "android.permission.CAMERA",
@@ -56,14 +55,11 @@
       "bundler": "metro",
       "output": "static"
     },
-    "notification": {
-      "icon": "./assets/notification-icon.png",
-      "color": "#0F766E"
-    },
     "plugins": [
       "expo-router",
       "expo-font",
       "./plugins/withAndroidDuplicateLibsFix.js",
+      "./plugins/withAndroidNotificationIcon.js",
       [
         "expo-build-properties",
         {

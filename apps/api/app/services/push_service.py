@@ -86,7 +86,16 @@ async def send_push(
         notification=(
             None
             if data_only
-            else messaging.AndroidNotification(channel_id=channel_id, sound="default")
+            else messaging.AndroidNotification(
+                channel_id=channel_id,
+                sound="default",
+                # White silhouette installed by
+                # plugins/withAndroidNotificationIcon.js. FCM renders this
+                # when the app is killed; without it Android falls back to the
+                # launcher icon, which tints to an unreadable white blob.
+                icon="ic_notification",
+                color="#0F766E",
+            )
         ),
     )
     apns = messaging.APNSConfig(

@@ -60,6 +60,9 @@ export async function showIncomingCallNotification(data: Record<string, any>) {
     },
     android: {
       channelId,
+      // White silhouette installed by plugins/withAndroidNotificationIcon.js.
+      // Without this Notifee uses the launcher icon -> unreadable white blob.
+      smallIcon: "ic_notification",
       importance: AndroidImportance.MAX,
       category: AndroidCategory.CALL,
       visibility: AndroidVisibility.PUBLIC,

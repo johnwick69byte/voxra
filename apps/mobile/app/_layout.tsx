@@ -18,6 +18,7 @@ import { theme } from "../src/theme/tokens";
 import { useAppFonts } from "../src/theme/fonts";
 import { ForceUpdateGate } from "../src/components/ForceUpdateGate";
 import { registerDevicePushToken } from "../src/services/pushRegistration";
+import { ensureNotificationChannels } from "../src/services/notificationChannels";
 import { ensureNotificationPermission } from "../src/services/permissions";
 import { setupCallKeep } from "../src/services/CallKeepService";
 import { callsAPI } from "../src/services/api";
@@ -36,6 +37,9 @@ export default function RootLayout() {
   useEffect(() => {
     hydrate();
     setupCallKeep();
+    // Must exist before the first FCM push, otherwise Android falls back to a
+    // silent channel with the launcher icon.
+    ensureNotificationChannels();
     const unsub = registerNotifeeForeground();
     return () => {
       unsub?.();

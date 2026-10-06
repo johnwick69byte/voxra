@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -14,6 +14,7 @@ import { callsAPI } from "../src/services/api";
 import { PrimaryButton } from "../src/components/PrimaryButton";
 import { AppText } from "../src/components/ui";
 import { cancelCallNotification } from "../src/services/IncomingCallService";
+import { socketService } from "../src/services/socket";
 import { playRingtone, stopRingtone } from "../src/services/ringtone";
 import { ensureCallDisclaimer } from "../src/services/callDisclaimer";
 import { ensureCallPermissions } from "../src/services/permissions";
@@ -27,6 +28,7 @@ export default function IncomingCallScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const setIncoming = useCallStore((s) => s.setIncoming);
+  const setIncomingOpen = useCallStore((s) => s.setIncomingOpen);
   const [busy, setBusy] = useState(false);
   const [countdown, setCountdown] = useState(45);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -37,6 +39,19 @@ export default function IncomingCallScreen() {
   const channelName = String(params.channelName || "");
   const declineToken = String(params.declineToken || "");
   const autoAccept = params.autoAccept === "1";
+  const incoming = useCallStore((s) => s.incoming);
+  const dismissing = useRef(false);
+
+  /** Close this screen exactly once, whatever triggered it. */
+  const dismiss = useCallback(() => {
+    if (dismissing.current) return;
+    dismissing.current = true;
+    Vibration.cancel();
+    stopRingtone();
+    setIncoming(null);
+    setIncomingOpen(null);
+    router.back();
+  }, [router, setIncoming, setIncomingOpen]);
 
   useEffect(() => {
     Animated.loop(
@@ -67,13 +82,47 @@ export default function IncomingCallScreen() {
     if (autoAccept) accept();
   }, [autoAccept]);
 
+  // The caller can give up, or the server can time the ring out. Either way this
+  // screen must stop ringing rather than counting down in the void. Only reacts
+  // once the store has actually held this call, so a cold start that mounts
+  // before the store populates does not immediately dismiss.
+  const sawIncoming = useRef(false);
   useEffect(() => {
-    if (countdown === 0) {
-      stopRingtone();
-      setIncoming(null);
-      router.back();
+    if (incoming?.call_id === callId) {
+      sawIncoming.current = true;
+      return;
     }
-  }, [countdown]);
+    if (sawIncoming.current && incoming === null) dismiss();
+  }, [incoming, callId, dismiss]);
+
+  useEffect(() => {
+    const onCancel = (payload?: any) => {
+      if (payload?.call_id && payload.call_id !== callId) return;
+      dismiss();
+    };
+    socketService.on("call_cancelled", onCancel);
+    socketService.on("cancel_call_notification", onCancel);
+    socketService.on("call_missed", onCancel);
+    return () => {
+      socketService.off("call_cancelled", onCancel);
+      socketService.off("cancel_call_notification", onCancel);
+      socketService.off("call_missed", onCancel);
+    };
+  }, [callId, dismiss]);
+
+  useEffect(() => {
+    if (countdown !== 0) return;
+    // Ring window elapsed. Tell the server so the caller is released
+    // immediately instead of waiting for its own timeout, then close.
+    (async () => {
+      try {
+        await cancelCallNotification(callId);
+      } catch {
+        /* ignore */
+      }
+      dismiss();
+    })();
+  }, [countdown, callId, dismiss]);
 
   const accept = async () => {
     const agreed = await ensureCallDisclaimer();
@@ -87,6 +136,7 @@ export default function IncomingCallScreen() {
       await cancelCallNotification(callId);
       const res = await callsAPI.accept(callId);
       setIncoming(null);
+      dismissing.current = true;
       router.replace({
         pathname: "/call-screen",
         params: {
@@ -98,6 +148,7 @@ export default function IncomingCallScreen() {
           peerId: String(params.callerId || res.data?.caller_id || ""),
           agoraToken: res.data.agora?.token || "",
           agoraAppId: res.data.agora?.app_id || "",
+          agoraUid: String(res.data.agora?.uid ?? ""),
         },
       });
     } catch (e: any) {
@@ -115,10 +166,9 @@ export default function IncomingCallScreen() {
     try {
       await cancelCallNotification(callId);
       await callsAPI.reject(callId, declineToken);
-      setIncoming(null);
-      router.back();
+      dismiss();
     } catch {
-      router.back();
+      dismiss();
     } finally {
       setBusy(false);
     }

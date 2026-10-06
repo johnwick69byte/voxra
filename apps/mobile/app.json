@@ -7,10 +7,9 @@
     "scheme": "simpletalk",
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.simple_talk.app",
+      "bundleIdentifier": "com.simpletalk.app",
       "buildNumber": "1",
       "infoPlist": {
         "UIBackgroundModes": [
@@ -30,7 +29,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B1F1A"
       },
-      "jsEngine": "hermes",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
@@ -47,6 +45,8 @@
         "android.permission.READ_PHONE_STATE",
         "android.permission.CALL_PHONE",
         "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
+        "android.permission.MANAGE_OWN_CALLS",
+        "android.permission.READ_PHONE_NUMBERS",
         "android.permission.INTERNET"
       ],
       "googleServicesFile": "./google-services.json"
@@ -64,10 +64,7 @@
         "expo-build-properties",
         {
           "android": {
-            "compileSdkVersion": 35,
-            "targetSdkVersion": 35,
-            "minSdkVersion": 24,
-            "enableProguardInReleaseBuilds": true
+            "minSdkVersion": 24
           }
         }
       ],

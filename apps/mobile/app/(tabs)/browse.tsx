@@ -17,6 +17,7 @@ import Animated, { FadeIn } from "react-native-reanimated";
 import { creatorsAPI, walletAPI, authAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
 import { useNotificationsStore } from "../../src/store/notificationsStore";
+import { socketService } from "../../src/services/socket";
 import { StatusDot } from "../../src/components/StatusDot";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText, Avatar, Card, CreatorRowSkeleton, EmptyState } from "../../src/components/ui";
@@ -53,6 +54,9 @@ export default function BrowseScreen() {
 
   const [dnd, setDnd] = useState(false);
   const [earnings, setEarnings] = useState(0);
+  // Set when the signed-in user is a creator whose verification is still under
+  // review: they can use the app, but cannot receive calls yet.
+  const [callsBlocked, setCallsBlocked] = useState(false);
 
   const [query, setQuery] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -146,10 +150,37 @@ export default function BrowseScreen() {
       const [bal, me] = await Promise.all([walletAPI.balance(), authAPI.me()]);
       setEarnings(bal.data.earnings_balance || 0);
       setDnd(!!me.data?.creator_profile?.is_dnd);
+      setCallsBlocked(
+        me.data?.user?.user_type === "creator" && !me.data?.creator_profile?.is_approved
+      );
     } catch {
       /* banner is non-critical */
     }
   };
+
+  // Live presence: the server broadcasts creator_status on connect, disconnect,
+  // ring, reject and call end. Applying it here keeps the Active filter and the
+  // status dots accurate without a manual refresh.
+  useEffect(() => {
+    const onStatus = (payload: any) => {
+      const id = payload?.user_id;
+      if (!id) return;
+      setCreators((prev) => {
+        let changed = false;
+        const next = prev.map((c) => {
+          if (c.user_id !== id) return c;
+          const status = payload.status ?? c.status;
+          const isOnline = payload.is_online ?? status === "ACTIVE";
+          if (c.status === status && c.is_online === isOnline) return c;
+          changed = true;
+          return { ...c, status, is_online: isOnline };
+        });
+        return changed ? next : prev;
+      });
+    };
+    socketService.on("creator_status", onStatus);
+    return () => socketService.off("creator_status", onStatus);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -177,6 +208,23 @@ export default function BrowseScreen() {
           ) : null}
         </Pressable>
       </View>
+
+      {isCreator && callsBlocked ? (
+        <Pressable
+          style={styles.reviewBanner}
+          onPress={() => router.push("/pending-approval")}
+        >
+          <Ionicons name="time-outline" size={18} color={theme.colors.warning} />
+          <View style={{ flex: 1 }}>
+            <AppText style={styles.reviewTitle}>Verification under review</AppText>
+            <AppText variant="caption">
+              You can use the app normally, but you cannot receive calls until
+              you're approved. Tap for details.
+            </AppText>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+        </Pressable>
+      ) : null}
 
       {isCreator ? (
         <View style={styles.creatorBanner}>
@@ -435,6 +483,19 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
   },
   earnSmall: { fontFamily: theme.font.display, fontSize: 26, color: theme.colors.text, marginTop: 2 },
+  reviewBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: theme.radius.lg,
+    backgroundColor: "rgba(217,119,6,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(217,119,6,0.35)",
+  },
+  reviewTitle: { fontFamily: theme.font.bodySemi, color: theme.colors.text, marginBottom: 2 },
   searchRow: { flexDirection: "row", gap: 10, paddingHorizontal: 20 },
   searchBox: {
     flex: 1,

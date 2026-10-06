@@ -8,7 +8,18 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:android": "python scripts/verify_android_resources.py"
+  },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "react-native-callkeep",
+          "@notifee/react-native"
+        ]
+      }
+    }
   },
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.4.1",
@@ -19,7 +30,7 @@
     "@react-native-firebase/app": "^24.0.0",
     "@react-native-firebase/messaging": "^24.0.0",
     "axios": "^1.13.2",
-    "expo": "~57.0.26",
+    "expo": "~57.0.27",
     "expo-asset": "~57.0.18",
     "expo-audio": "~57.0.5",
     "expo-build-properties": "~57.0.22",
@@ -30,9 +41,9 @@
     "expo-image": "~57.0.5",
     "expo-image-picker": "~57.0.20",
     "expo-linear-gradient": "~57.0.2",
-    "expo-linking": "~57.0.11",
-    "expo-router": "~57.0.24",
-    "expo-screen-capture": "~57.0.3",
+    "expo-linking": "~57.0.12",
+    "expo-router": "~57.0.25",
+    "expo-screen-capture": "~57.0.4",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.4",

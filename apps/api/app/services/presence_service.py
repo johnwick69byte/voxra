@@ -2,21 +2,31 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from app.core.database import get_db
 from app.core.database_redis import get_redis, presence_key, ring_lock_key
 
+logger = logging.getLogger(__name__)
+
 
 async def is_online(user_id: str) -> bool:
+    """True when a live Redis presence key exists.
+
+    Returns None (not False) when Redis is unavailable, so callers can tell
+    "definitely offline" apart from "cannot tell". Treating an outage as
+    "everyone is offline" is what previously caused every creator to be flipped
+    offline by the reconciler within a minute of Redis wobbling.
+    """
     try:
         r = get_redis()
         if not r:
-            return False
+            return None
         return bool(await r.exists(presence_key(user_id)))
     except Exception:
-        return False
+        return None
 
 
 async def mark_creator_online(creator_id: str) -> None:
@@ -37,7 +47,15 @@ async def mark_creator_offline(creator_id: str) -> None:
 
 
 async def reconcile_offline_creators() -> int:
-    """Flip profiles offline when their Redis presence key has expired (missed disconnect)."""
+    """Flip profiles offline when their Redis presence key has expired.
+
+    Bails out entirely when Redis is unreachable: presence cannot be evaluated
+    without it, and treating "unknown" as offline would wipe every creator's
+    status on a transient outage.
+    """
+    if get_redis() is None:
+        logger.warning("reconcile_offline_creators skipped: Redis unavailable")
+        return 0
     db = get_db()
     now = datetime.now(timezone.utc)
     rows = await db.creator_profiles.find(
@@ -46,7 +64,7 @@ async def reconcile_offline_creators() -> int:
     flipped = 0
     for row in rows:
         uid = row["user_id"]
-        if not await is_online(uid):
+        if await is_online(uid) is False:
             await db.creator_profiles.update_one(
                 {"user_id": uid}, {"$set": {"is_online": False, "last_seen": now}}
             )
@@ -78,10 +96,27 @@ async def get_creator_status(creator_id: str, profile: Optional[dict] = None) ->
     )
     if active:
         return "BUSY"
-    if not await is_online(creator_id):
+    presence = await is_online(creator_id)
+    if presence is False:
         # Offline creators can still be rung via push; UI shows OFFLINE
         return "OFFLINE"
+    if presence is None:
+        # Redis unavailable -- fall back to the denormalized flag rather than
+        # claiming the creator is offline.
+        return "ACTIVE" if profile.get("is_online") else "OFFLINE"
     return "ACTIVE"
+
+
+async def ensure_redis_or_warn() -> bool:
+    """Log loudly when Redis is down, since presence and locks degrade silently."""
+    ok = get_redis() is not None
+    if not ok:
+        logger.error(
+            "REDIS UNAVAILABLE - creator online/offline status will fall back to "
+            "the last known value, and ring/call locks degrade to Mongo. "
+            "Set REDIS_URL or the UPSTASH_* vars on the API service."
+        )
+    return ok
 
 
 def status_from_profile(profile: dict, *, is_online_now: Optional[bool] = None, busy: bool = False) -> str:

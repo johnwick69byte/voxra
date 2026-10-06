@@ -11,6 +11,7 @@ import {
   Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { socketService } from "../../src/services/socket";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, { FadeInDown } from "react-native-reanimated";
@@ -56,6 +57,17 @@ export default function CreatorProfile() {
 
   useEffect(() => {
     load().catch(() => {});
+  }, [id]);
+
+  // Reflect call state live: while this screen is open the creator can go
+  // BUSY (someone rings them) or back to ACTIVE (call ends).
+  useEffect(() => {
+    const onStatus = (payload: any) => {
+      if (!payload?.user_id || payload.user_id !== String(id)) return;
+      setCreator((c: any) => (c ? { ...c, status: payload.status ?? c.status } : c));
+    };
+    socketService.on("creator_status", onStatus);
+    return () => socketService.off("creator_status", onStatus);
   }, [id]);
 
   const photos = useMemo(() => {

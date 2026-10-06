@@ -37,6 +37,10 @@ import { useSecureCallScreen } from "../src/hooks/useSecureCallScreen";
 import { GiftBurst, GiftFx } from "../src/components/GiftBurst";
 
 const DISCONNECT_GRACE_MS = 20000;
+// How long the caller's UI keeps ringing before giving up. The server uses
+// CALL_RING_TIMEOUT_SECONDS (45); allow a few extra seconds for the
+// call_missed socket event to arrive first.
+const RING_DEADLINE_MS = 50000;
 const IS_PROD = !__DEV__;
 const GIFT_AMOUNTS = [10, 25, 50, 100, 250];
 const GIFT_ICONS = ["🎁", "💎", "🌹", "⭐", "👑"];
@@ -77,6 +81,7 @@ export default function CallScreen() {
   const channelName = String(params.channelName || `channel_${callId}`);
   const initialToken = String(params.agoraToken || "");
   const initialAppId = String(params.agoraAppId || "");
+  const initialUid = params.agoraUid ? Number(params.agoraUid) : undefined;
 
   const [status, setStatus] = useState(role === "caller" ? "Ringing…" : "Connecting…");
   const [seconds, setSeconds] = useState(0);
@@ -95,6 +100,7 @@ export default function CallScreen() {
   const [speaker, setSpeaker] = useState(false);
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uidUsedRef = useRef<number | undefined>(undefined);
   const lastHandledCallIdRef = useRef<string | null>(null);
 
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -169,15 +175,19 @@ export default function CallScreen() {
     }, 60000);
   };
 
-  const joinMedia = async (appId: string, token: string, channel: string) => {
+  const joinMedia = async (appId: string, token: string, channel: string, uid?: number) => {
     const ok = await ensureCallPermissions(callType === "VIDEO");
     if (!ok) return false;
     const engine = await createAndJoinEngine({
       appId: appId || process.env.EXPO_PUBLIC_AGORA_APP_ID || "",
       token,
       channelName: channel,
+      // Each participant must use its own uid; joining as 0 on both sides
+      // makes Agora evict one of them (silent call, no audio).
+      uid: uid ?? initialUid,
       enableVideo: callType === "VIDEO",
       onJoined: () => {
+        uidUsedRef.current = uid ?? initialUid;
         setMediaReady(true);
         setStatus("Connected");
         setReconnecting(false);
@@ -407,7 +417,8 @@ export default function CallScreen() {
         const joined = await joinMedia(
           agora.app_id || initialAppId,
           agora.token || initialToken,
-          agora.channel_name || channelName
+          agora.channel_name || channelName,
+          agora.uid ?? initialUid
         );
         if (!joined) {
           await leave({ review: false });
@@ -417,6 +428,20 @@ export default function CallScreen() {
           const res = await callsAPI.prepaidStart(callId);
           const billed = res.data?.balance;
           if (typeof billed === "number") setBilling(billed, res.data?.total_billed ?? 0);
+          // The caller's token is bound to its own uid; re-join if it differs
+          // from the one embedded at ring time.
+          const freshUid = res.data?.agora?.uid;
+          if (freshUid != null && Number(freshUid) !== Number(uidUsedRef.current)) {
+            uidUsedRef.current = Number(freshUid);
+            await leaveAndDestroy(engineRef.current);
+            engineRef.current = null;
+            await joinMedia(
+              res.data?.agora?.app_id || initialAppId,
+              res.data?.agora?.token || initialToken,
+              res.data?.agora?.channel_name || channelName,
+              Number(freshUid)
+            );
+          }
         } else {
           // Seed the creator's live earnings once media is ready.
           const res = await walletAPI.balance();
@@ -487,7 +512,12 @@ export default function CallScreen() {
 
     if (role === "receiver") {
       onAccepted({
-        agora: { token: initialToken, app_id: initialAppId, channel_name: channelName },
+        agora: {
+          token: initialToken,
+          app_id: initialAppId,
+          channel_name: channelName,
+          uid: initialUid,
+        },
       });
     }
 
@@ -546,25 +576,36 @@ export default function CallScreen() {
     }
   };
 
-  // If the caller never receives call_accepted, leave after a watchdog window.
+  // Caller-side ring deadline. The server is authoritative (it marks the call
+  // MISSED after CALL_RING_TIMEOUT_SECONDS and emits call_missed), but this
+  // guarantees the caller's UI never rings forever if a socket event is lost.
+  // It re-checks rather than testing once, so a slow accept still lands.
   useEffect(() => {
     if (role !== "caller") return;
     if (!status.startsWith("Ring")) return;
-    watchdogRef.current = setTimeout(async () => {
-      if (endingRef.current || !statusRef.current.startsWith("Ring")) return;
-      try {
-        const res = await callsAPI.active();
-        const st = res.data?.call?.status;
-        if (!st || !["RINGING", "ACCEPTED", "LIVE"].includes(st)) {
-          await leave({ review: false });
-        }
-      } catch {
-        /* keep waiting; server timeout will settle it */
+
+    const deadline = Date.now() + RING_DEADLINE_MS;
+    const poll = setInterval(async () => {
+      if (endingRef.current || !statusRef.current.startsWith("Ring")) {
+        clearInterval(poll);
+        return;
       }
-    }, 12000);
-    return () => {
-      if (watchdogRef.current) clearTimeout(watchdogRef.current);
-    };
+      if (Date.now() >= deadline) {
+        clearInterval(poll);
+        try {
+          const res = await callsAPI.active();
+          const st = res.data?.call?.status;
+          if (!st || !["RINGING", "ACCEPTED", "LIVE"].includes(st)) {
+            Toast.show({ type: "info", text1: "No answer" });
+            await leave({ review: false });
+          }
+        } catch {
+          /* socket may still deliver call_missed */
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(poll);
   }, [role, status, leave]);
 
   const mm = String(Math.floor(seconds / 60)).padStart(2, "0");

@@ -235,7 +235,14 @@ async def active_call(user: dict = Depends(require_user)):
     role = "caller" if call["caller_id"] == user["user_id"] else "receiver"
     agora = None
     if call["status"] in ("ACCEPTED", "LIVE"):
-        agora = agora_service.build_rtc_token(call["channel_name"])
+        # Token must be bound to this participant's own uid, and carry the
+        # peer's uid so the room view knows who to expect.
+        my_uid = agora_service.uid_for_user(user["user_id"])
+        peer_id = call["receiver_id"] if role == "caller" else call["caller_id"]
+        agora = {
+            **agora_service.build_rtc_token(call["channel_name"], uid=my_uid),
+            "peer_uid": agora_service.uid_for_user(peer_id),
+        }
     wallet = await wallet_service.get_wallet(user["user_id"])
     return {
         "success": True,

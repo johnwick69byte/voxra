@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { View, ActivityIndicator, Platform } from "react-native";
+import { View, ActivityIndicator, Alert, Linking } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 import Toast from "react-native-toast-message";
 import { useAuthStore } from "../src/store/authStore";
@@ -14,15 +14,16 @@ import {
   showIncomingCallNotification,
   reportIncomingCallToCallKit,
 } from "../src/services/IncomingCallService";
+import { subscribeCallRoute } from "../src/services/callRouter";
 import { theme } from "../src/theme/tokens";
 import { useAppFonts } from "../src/theme/fonts";
 import { ForceUpdateGate } from "../src/components/ForceUpdateGate";
 import { registerDevicePushToken } from "../src/services/pushRegistration";
 import { ensureNotificationChannels } from "../src/services/notificationChannels";
-import { ensureNotificationPermission } from "../src/services/permissions";
 import { setupCallKeep } from "../src/services/CallKeepService";
 import { callsAPI } from "../src/services/api";
 import { useNotificationsStore } from "../src/store/notificationsStore";
+import { ensureAllPermissions } from "../src/services/permissions";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -32,7 +33,6 @@ export default function RootLayout() {
   const setIncoming = useCallStore((s) => s.setIncoming);
   const setActiveCall = useCallStore((s) => s.setActiveCall);
   const router = useRouter();
-  const callDedupRef = useRef<string | null>(null);
 
   useEffect(() => {
     hydrate();
@@ -56,7 +56,33 @@ export default function RootLayout() {
     if (!user || !token) return;
 
     registerDevicePushToken();
-    ensureNotificationPermission();
+    // Ask for camera/mic/notifications up front. Deferring these to the moment
+    // a call arrives meant the first incoming call was missed while the user
+    // was still reading permission dialogs.
+    ensureAllPermissions();
+
+    // Android silently drops displayIncomingCall() without a phone account, so
+    // the full-screen call UI never appears. Surface that once instead of
+    // leaving the user with an unexplained nothing.
+    (async () => {
+      try {
+        const { hasPhoneAccount, setupCallKeep } = require("../src/services/CallKeepService");
+        await setupCallKeep();
+        const ok = await hasPhoneAccount();
+        if (!ok) {
+          Alert.alert(
+            "Turn on call access",
+            "Simple Talk needs phone account access to show incoming calls on your lock screen and over other apps. Tap Settings, then allow Phone / Call access.",
+            [
+              { text: "Later", style: "cancel" },
+              { text: "Settings", onPress: () => Linking.openSettings() },
+            ]
+          );
+        }
+      } catch {
+        /* best effort */
+      }
+    })();
 
     (async () => {
       try {
@@ -96,6 +122,7 @@ export default function RootLayout() {
               channelName: call.channel_name || "",
               agoraToken: agora.token || "",
               agoraAppId: agora.app_id || "",
+              agoraUid: String(agora.uid ?? ""),
             },
           });
         }
@@ -104,38 +131,52 @@ export default function RootLayout() {
       }
     })();
 
-    const onIncoming = async (payload: any) => {
-      // Dedup: a socket incoming_call and a pending-call push on launch can both
-      // fire for the same call. Ignore duplicates within a short window.
-      if (payload?.call_id) {
-        if (callDedupRef.current === payload.call_id) return;
-        callDedupRef.current = payload.call_id;
-        setTimeout(() => {
-          if (callDedupRef.current === payload.call_id) callDedupRef.current = null;
-        }, 5000);
-      }
+    // A call can arrive over both the socket and FCM, and a notification tap can
+    // re-deliver it. Suppress only while this call is already on screen -- using
+    // a time window would swallow a tap that comes after the screen was closed
+    // (e.g. the socket rang while backgrounded, then the user taps the
+    // notification moments later).
+    const claimCall = (callId?: string) => {
+      if (!callId) return true;
+      if (useCallStore.getState().incomingOpen === callId) return false;
+      return true;
+    };
+
+    const openIncoming = async (payload: any, opts?: { action?: string }) => {
+      if (!claimCall(payload?.call_id)) return;
+      const isAccept = opts?.action === "accept";
+      useCallStore.getState().setIncomingOpen(payload?.call_id ?? null);
       setIncoming(payload);
-      if (Platform.OS === "ios") {
-        await reportIncomingCallToCallKit(payload);
+      // Register the call with the OS (Android Telecom / iOS CallKit) so it can
+      // take over the screen like a normal phone call. Previously this ran on
+      // iOS only, which is why Android showed no full-screen incoming UI.
+      await reportIncomingCallToCallKit(payload);
+      if (!isAccept) {
+        await showIncomingCallNotification(payload);
       }
-      await showIncomingCallNotification(payload);
       router.push({
         pathname: "/incoming-call",
         params: {
-          callId: payload.call_id,
-          callerName: payload.caller_name || "",
+          callId: payload.call_id || "",
+          callerName: payload.caller_name || "Someone",
           callerId: payload.caller_id || "",
           callerPicture: payload.caller_picture || "",
           callType: payload.call_type || "AUDIO",
           channelName: payload.channel_name || "",
           declineToken: payload.decline_token || "",
+          autoAccept: isAccept ? "1" : "0",
         },
       });
     };
 
+    const onIncoming = async (payload: any) => {
+      await openIncoming(payload);
+    };
     const onCancelNotif = async (payload: any) => {
       await cancelCallNotification(payload?.call_id);
       setIncoming(null);
+      // Release the slot so a subsequent call for the same id can open again.
+      useCallStore.getState().setIncomingOpen(null);
     };
 
     const onNewNotification = (payload: any) => {
@@ -158,26 +199,23 @@ export default function RootLayout() {
     socketService.on("new_notification", onNewNotification);
     useNotificationsStore.getState().refresh();
 
+    // Notification taps (cold start, backgrounded, or while running) all land
+    // here. Subscribing for the lifetime of the session means a tap that
+    // happens while the app is already open still opens the call screen.
+    const unsubscribeRoute = subscribeCallRoute(async (payload) => {
+      await openIncoming(payload, { action: payload.action });
+    });
+
+    // Anything received before this screen mounted (app cold-started by a tap).
     (async () => {
       const pending = await consumePendingCall();
-      if (pending) {
-        setIncoming(pending);
-        router.push({
-          pathname: "/incoming-call",
-          params: {
-            callId: pending.call_id,
-            callerName: pending.caller_name || "",
-            callerId: pending.caller_id || "",
-            callType: pending.call_type || "AUDIO",
-            channelName: pending.channel_name || "",
-            declineToken: pending.decline_token || "",
-            autoAccept: pending.action === "accept" ? "1" : "0",
-          },
-        });
+      if (pending?.call_id) {
+        await openIncoming(pending, { action: pending.action });
       }
     })();
 
     return () => {
+      unsubscribeRoute();
       socketService.off("incoming_call", onIncoming);
       socketService.off("cancel_call_notification", onCancelNotif);
       socketService.off("call_cancelled", onCancelNotif);

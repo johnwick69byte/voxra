@@ -31,7 +31,32 @@ async def referral_apply(body: ApplyReferralRequest, user: dict = Depends(requir
 
 @router.get("/healthz")
 async def healthz():
-    return {"ok": True, "service": "simpletalk-api"}
+    """Public liveness probe.
+
+    Also reports whether optional dependencies are wired, because their absence
+    degrades features silently (no Redis -> creator online status never updates).
+    """
+    from app.core.database_redis import get_redis
+
+    r = get_redis()
+    redis_ok = False
+    if r is not None:
+        try:
+            await r.ping()
+            redis_ok = True
+        except Exception:
+            redis_ok = False
+
+    return {
+        "ok": True,
+        "service": "simpletalk-api",
+        "redis_configured": r is not None,
+        "redis_ok": redis_ok,
+        "firebase_configured": bool(
+            get_settings().firebase_credentials_path
+            or get_settings().firebase_credentials_json
+        ),
+    }
 
 
 @router.get("/app/config")

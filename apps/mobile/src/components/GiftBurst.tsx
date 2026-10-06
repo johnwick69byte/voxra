@@ -54,29 +54,21 @@ function GiftBurst({
   useEffect(() => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
-    // Initial pop-in
-    opacity.value = withTiming(1, { duration: 150 });
-    scale.value = withSpring(1.2, { damping: 8, stiffness: 120 });
-
-    // Float up/down
-    y.value = withSequence(
-      withTiming(gift.direction === "sent" ? -80 : 40, { duration: 800 }),
-      withDelay(150, withTiming(gift.direction === "sent" ? -140 : 100, { duration: 400 }))
+    // Pop in, float, then fade out. Each value is driven by a single sequence --
+    // two withSequence() chains writing `scale` would fight each other and the
+    // animation would stutter or end in the wrong state.
+    // One sequence per shared value. Assigning opacity twice would cancel the
+    // first animation, and the delayed fade-out would then run from 0 -> 0,
+    // leaving the burst invisible.
+    opacity.value = withSequence(
+      withTiming(1, { duration: 150 }),
+      withDelay(
+        1050,
+        withTiming(0, { duration: 300 }, (finished) => {
+          if (finished) runOnJS(onDone)(gift.id);
+        })
+      )
     );
-
-    // Slight horizontal drift
-    x.value = withSequence(
-      withTiming(gift.direction === "sent" ? -30 : 30, { duration: 600 }),
-      withTiming(0, { duration: 300 })
-    );
-
-    // Gentle rotation
-    rotation.value = withSequence(
-      withSpring(gift.direction === "sent" ? -15 : 15, { damping: 8, stiffness: 80 }),
-      withDelay(300, withSpring(0, { damping: 10, stiffness: 60 }))
-    );
-
-    // Scale pulse
     scale.value = withSequence(
       withSpring(1.2, { damping: 8, stiffness: 120 }),
       withDelay(100, withSpring(1.0, { damping: 12, stiffness: 100 })),
@@ -84,12 +76,19 @@ function GiftBurst({
       withDelay(800, withSpring(1.0, { damping: 12, stiffness: 100 }))
     );
 
-    // Fade out
-    opacity.value = withDelay(
-      1200,
-      withTiming(0, { duration: 300 }, (finished) => {
-        if (finished) runOnJS(onDone)(gift.id);
-      })
+    y.value = withSequence(
+      withTiming(gift.direction === "sent" ? -80 : 40, { duration: 800 }),
+      withDelay(150, withTiming(gift.direction === "sent" ? -140 : 100, { duration: 400 }))
+    );
+
+    x.value = withSequence(
+      withTiming(gift.direction === "sent" ? -30 : 30, { duration: 600 }),
+      withTiming(0, { duration: 300 })
+    );
+
+    rotation.value = withSequence(
+      withSpring(gift.direction === "sent" ? -15 : 15, { damping: 8, stiffness: 80 }),
+      withDelay(300, withSpring(0, { damping: 10, stiffness: 60 }))
     );
   }, [gift.id]);
 
@@ -127,9 +126,19 @@ function GiftBurst({
         </Animated.View>
         <View style={styles.textContainer}>
           <Text style={[{ color: giftColor }, styles.amt]}>
-            {gift.direction === "sent" ? "Sent" : "Got"} \u20B9{gift.amount}
+            {gift.direction === "sent" ? "Sent" : "Got"} {"\u20B9"}
+            {gift.amount}
           </Text>
-          <Text style={styles.subText}>You earned \u20B9{Math.round((gift.amount * 0.85))}</Text>
+          {/* The 85% credit only applies to the receiver; showing it on a sent
+              gift would tell the sender they earned money. */}
+          {gift.direction === "received" ? (
+            <Text style={styles.subText}>
+              You earned {"\u20B9"}
+              {Math.round(gift.amount * 0.85)}
+            </Text>
+          ) : (
+            <Text style={styles.subText}>Gift delivered</Text>
+          )}
         </View>
       </View>
     </Animated.View>

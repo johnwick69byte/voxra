@@ -36,6 +36,7 @@ export const authAPI = {
     api.get("/auth/check-username", { params: { username } }),
   updateProfile: (data: Record<string, unknown>) =>
     api.post("/auth/update-profile", data),
+  deleteAccount: () => api.post("/auth/delete-account"),
 };
 
 export const creatorsAPI = {

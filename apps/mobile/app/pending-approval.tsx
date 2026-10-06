@@ -25,8 +25,12 @@ export default function PendingApproval() {
       setGesture(res.data.gesture_number ?? null);
       setSelfie(res.data.verification_selfie_url || null);
       setImages(res.data.images || []);
-      if (res.data.next_step === "home") router.replace("/(tabs)/browse");
-      else if (res.data.next_step && res.data.next_step !== "pending_approval") {
+      // Approved while this screen was open -- fall through to the app.
+      if (res.data.is_approved || res.data.next_step === "home") {
+        router.replace("/(tabs)/browse");
+        return;
+      }
+      if (res.data.next_step && res.data.next_step !== "pending_approval") {
         const map: Record<string, string> = {
           complete_profile: "/(auth)/complete-profile",
           pricing_setup: "/pricing-setup",
@@ -96,6 +100,12 @@ export default function PendingApproval() {
       ) : (
         <PrimaryButton label="Refresh status" onPress={refresh} style={{ marginTop: 24 }} />
       )}
+      <PrimaryButton
+        label="Use the app while you wait"
+        variant="ghost"
+        onPress={() => router.replace("/(tabs)/browse")}
+        style={{ marginTop: 12 }}
+      />
       <PrimaryButton
         label="Log out"
         variant="ghost"

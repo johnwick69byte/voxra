@@ -94,20 +94,23 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
         raise HTTPException(400, "Receiver must be a creator")
 
     profile = await db.creator_profiles.find_one({"user_id": receiver_id}, {"_id": 0})
-    if not profile or not profile.get("is_approved"):
-        raise HTTPException(403, "Creator not approved")
+    if not profile:
+        raise HTTPException(404, "Creator profile not found")
+    if not profile.get("is_approved"):
+        raise HTTPException(
+            403,
+            "This creator's verification is still under review and cannot take calls yet",
+        )
     if not profile.get("instant_call_enabled", True):
         raise HTTPException(403, "Instant calls disabled")
     if profile.get("is_dnd"):
         raise HTTPException(403, "Creator is in DND mode")
 
+    # BUSY is a hard block. OFFLINE is allowed: they are not connected, but a
+    # push can still wake their device and ring them.
     available, reason = await presence_service.is_creator_available(receiver_id, profile)
-    if not available and reason != "ok":
-        # OFFLINE is allowed (push wake); BUSY/DND blocked
-        if reason != "Creator is busy" and "DND" not in reason:
-            pass
-        else:
-            raise HTTPException(409, reason)
+    if not available:
+        raise HTTPException(409, reason)
 
     rate_key = "video_rate_per_minute" if call_type == "VIDEO" else "audio_rate_per_minute"
     rate = float(profile.get(rate_key) or (settings.min_video_rate if call_type == "VIDEO" else settings.min_audio_rate))
@@ -178,12 +181,16 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
         logger.exception("call insert failed for %s", call_id)
         raise HTTPException(500, "Could not start the call, please try again")
 
-    # Push data-only incoming call
+    # Ring via a *notification* message. A data-only message is not delivered
+    # once Android has killed/swiped the app, which is why incoming calls never
+    # appeared. A notification message is rendered by the system and can take
+    # over the screen (full-screen intent) like a normal phone call.
     push_doc = await db.push_tokens.find_one({"user_id": receiver_id}, {"_id": 0})
     if push_doc and push_doc.get("device_push_token"):
+        remaining = settings.call_ring_timeout_seconds
         await push_service.send_push(
             push_doc["device_push_token"],
-            title="Incoming Call",
+            title=f"Incoming {call_type.lower()} call",
             body=f"{caller.get('name') or 'Someone'} is calling you",
             data={
                 "type": "incoming_call",
@@ -194,10 +201,15 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
                 "call_type": call_type,
                 "channel_name": channel_name,
                 "decline_token": decline_token,
+                # Lets the native side open the call screen directly.
+                "route": "incoming-call",
             },
-            data_only=True,
-            ttl_seconds=settings.call_ring_timeout_seconds,
+            data_only=False,
+            ttl_seconds=remaining,
             channel_id="incoming_calls_v1",
+            full_screen=True,
+            loop_sound=True,
+            category="call",
         )
 
     payload = {
@@ -280,7 +292,11 @@ async def accept_call(*, call_id: str, user: dict) -> dict:
         raise HTTPException(409, "Call already handled")
 
     await _clear_ring_lock(call["receiver_id"], call_id)
-    tokens = agora_service.build_rtc_token(call["channel_name"])
+    # Distinct uid per participant: sharing uid 0 makes Agora evict one side,
+    # so the call connects but carries no audio.
+    receiver_uid = agora_service.uid_for_user(call["receiver_id"])
+    caller_uid = agora_service.uid_for_user(call["caller_id"])
+    tokens = agora_service.build_rtc_token(call["channel_name"], uid=receiver_uid)
 
     await emit_to_user(
         call["caller_id"],
@@ -288,7 +304,11 @@ async def accept_call(*, call_id: str, user: dict) -> dict:
         {
             "call_id": call_id,
             "channel_name": call["channel_name"],
-            "agora": tokens,
+            # Tokens are channel+uid bound, so each side needs its own.
+            "agora": {
+                **agora_service.build_rtc_token(call["channel_name"], uid=caller_uid),
+                "peer_uid": receiver_uid,
+            },
         },
     )
     await emit_to_user(call["caller_id"], "cancel_call_notification", {"call_id": call_id})
@@ -297,7 +317,7 @@ async def accept_call(*, call_id: str, user: dict) -> dict:
         "success": True,
         "call_id": call_id,
         "channel_name": call["channel_name"],
-        "agora": tokens,
+        "agora": {**tokens, "peer_uid": caller_uid},
         "rate_per_minute": call["rate_per_minute"],
     }
 
@@ -376,6 +396,27 @@ async def miss_call(call_id: str) -> dict:
     return {"success": True}
 
 
+def _emit_low_balance_warning(call: dict, balance: float) -> Optional[dict]:
+    """Build the low-balance warning payload when the caller is near the end.
+
+    Fires when fewer than 2 minutes remain, so the caller is warned during the
+    penultimate minute -- before the call is force-ended for insufficient
+    funds. Matches the old app's threshold. Returns None when balance is fine.
+    """
+    rate = float(call.get("rate_per_minute") or 0)
+    if rate <= 0:
+        return None
+    minutes_remaining = int(balance / rate)
+    if minutes_remaining >= 2:
+        return None
+    return {
+        "call_id": call["call_id"],
+        "balance": balance,
+        "rate_per_minute": rate,
+        "minutes_remaining": minutes_remaining,
+    }
+
+
 async def prepaid_start(*, call_id: str, user: dict) -> dict:
     """Bill first minute and mark LIVE; start server billing tick."""
     db = get_db()
@@ -408,12 +449,13 @@ async def prepaid_start(*, call_id: str, user: dict) -> dict:
         model_cut, _platform_cut = await settle_minute(call, minute=1, rate=rate)
         wallet = await wallet_service.get_wallet(call["caller_id"])
         creator_wallet = await wallet_service.get_wallet(call["receiver_id"])
+        caller_balance = wallet.get("balance", 0)
         payload = {
             "call_id": call_id,
             "amount": rate,
             "minute": 1,
             "total_billed": rate,
-            "balance": wallet.get("balance", 0),
+            "balance": caller_balance,
         }
         await emit_to_user(call["caller_id"], "call_prepaid_billed", payload)
         await emit_to_user(
@@ -425,6 +467,11 @@ async def prepaid_start(*, call_id: str, user: dict) -> dict:
                 "earnings_balance": creator_wallet.get("earnings_balance", 0),
             },
         )
+        # Warn on the very first minute too: a caller who joined with only ~1
+        # minute of balance would otherwise get no warning before being cut off.
+        warning = _emit_low_balance_warning(call, caller_balance)
+        if warning:
+            await emit_to_user(call["caller_id"], "call_low_balance_warning", warning)
     else:
         await db.call_records.update_one(
             {"call_id": call_id},
@@ -432,7 +479,13 @@ async def prepaid_start(*, call_id: str, user: dict) -> dict:
         )
 
     await start_billing_loop(call_id)
-    tokens = agora_service.build_rtc_token(call["channel_name"])
+    # Per-participant uid again: the caller re-joins here after acceptance.
+    my_uid = agora_service.uid_for_user(user["user_id"])
+    peer_id = call["receiver_id"] if user["user_id"] == call["caller_id"] else call["caller_id"]
+    tokens = {
+        **agora_service.build_rtc_token(call["channel_name"], uid=my_uid),
+        "peer_uid": agora_service.uid_for_user(peer_id),
+    }
     wallet_now = await wallet_service.get_wallet(call["caller_id"])
     creator_wallet_now = await wallet_service.get_wallet(call["receiver_id"])
     fresh = await db.call_records.find_one({"call_id": call_id}, {"_id": 0, "total_amount": 1})
@@ -554,18 +607,9 @@ async def bill_next_minute(call_id: str) -> bool:
         },
     )
 
-    minutes_remaining = int(balance / rate) if rate > 0 else 999
-    if minutes_remaining < 2:
-        await emit_to_user(
-            call["caller_id"],
-            "call_low_balance_warning",
-            {
-                "call_id": call_id,
-                "balance": balance,
-                "minutes_remaining": minutes_remaining,
-                "rate_per_minute": rate,
-            },
-        )
+    warning = _emit_low_balance_warning(call, balance)
+    if warning:
+        await emit_to_user(call["caller_id"], "call_low_balance_warning", warning)
     return True
 
 

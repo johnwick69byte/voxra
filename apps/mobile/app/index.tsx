@@ -60,6 +60,9 @@ export default function Index() {
   if (next === "pricing_setup") return <Redirect href="/pricing-setup" />;
   if (next === "creator_photos") return <Redirect href="/creator-photos" />;
   if (next === "verification_selfie") return <Redirect href="/verification-selfie" />;
-  if (next === "pending_approval") return <Redirect href="/pending-approval" />;
+  // Creators awaiting review, and rejected ones, use the app as normal users.
+  // They simply cannot receive calls until approved, which the backend enforces
+  // and the Home banner explains. Gating the whole app behind a dead-end screen
+  // was what left model accounts stuck on "waiting for approval".
   return <Redirect href="/(tabs)/browse" />;
 }

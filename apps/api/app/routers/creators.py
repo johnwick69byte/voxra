@@ -225,10 +225,16 @@ async def browse_creators(
 
 def _onboarding_payload(user: dict, profile: Optional[dict], next_step: str) -> dict:
     profile = profile or {}
+    approved = bool(profile.get("is_approved"))
+    status = profile.get("verification_status")
     return {
         "success": True,
         "next_step": next_step,
-        "verification_status": profile.get("verification_status"),
+        "verification_status": status,
+        "is_approved": approved,
+        # True while a creator can use the app but cannot yet receive calls.
+        # Drives the "under review" banner on Home.
+        "calls_blocked": (user.get("user_type") == "creator") and not approved,
         "gesture_number": profile.get("gesture_number"),
         "images": profile.get("images") or [],
         "verification_selfie_url": profile.get("verification_selfie_url"),
@@ -375,11 +381,14 @@ async def onboarding_status(user: dict = Depends(require_user)):
     if not images:
         return _onboarding_payload(user, profile, "creator_photos")
     if status == "rejected":
-        return _onboarding_payload(user, profile, "pending_approval")
+        return _onboarding_payload(user, profile, "home")
     if not has_selfie or status in ("pending_photos", "pending_selfie"):
         return _onboarding_payload(user, profile, "verification_selfie")
     if status == "pending_review" or not (profile or {}).get("is_approved"):
-        return _onboarding_payload(user, profile, "pending_approval")
+        # Reviewed-but-not-yet-decided: let them use the app as a normal user.
+        # `is_approved` stays False, so initiate_call still refuses to ring them
+        # and the client shows a "verification under review" banner.
+        return _onboarding_payload(user, profile, "home")
     return _onboarding_payload(user, profile, "home")
 
 

@@ -16,17 +16,63 @@ if (hasFirebaseNative()) {
   try {
     const messagingModule = require("@react-native-firebase/messaging");
     const messaging = messagingModule.default || messagingModule;
-    const {
-      showIncomingCallNotification,
-      savePendingCall,
-    } = require("./src/services/IncomingCallService");
+    const { emitCallRoute } = require("./src/services/callRouter");
 
+    function routeIfCall(data) {
+      if (data && data.type === "incoming_call") {
+        emitCallRoute({ ...data, action: "ring" });
+      }
+    }
+
+    // A call arrives as a data message while the process is alive, or as a
+    // notification message (the killed/backgrounded path). Android renders the
+    // FCM notification itself, so we do NOT display a second one.
+    //
+    // The WhatsApp-style full-screen call UI comes from CallKeep, which drives
+    // Android Telecom. RNFirebase starts a headless JS task for background
+    // messages (see ReactNativeFirebaseMessagingReceiver), so this runs even
+    // when the app was swiped away -- provided the message is high priority,
+    // which the backend sets.
     messaging().setBackgroundMessageHandler(async (remoteMessage) => {
       const data = remoteMessage?.data || {};
-      if (data.type === "incoming_call") {
-        await savePendingCall({ ...data, action: "ring" });
-        await showIncomingCallNotification(data);
+      if (data.type !== "incoming_call") return;
+
+      // The headless task runs in a SEPARATE JS context from the app, so
+      // in-memory routing cannot reach the UI. Persist it instead; _layout
+      // consumes this on mount, and the notification tap routes normally.
+      const { savePendingCall } = require("./src/services/IncomingCallService");
+      await savePendingCall({ ...data, action: "ring" });
+
+      try {
+        const { setupCallKeep, reportIncomingCallToCallKit } = require(
+          "./src/services/CallKeepService"
+        );
+        await setupCallKeep();
+        await reportIncomingCallToCallKit(data);
+      } catch (e) {
+        // Best effort: on Android setup() needs an Activity, which a headless
+        // context has not got. The FCM notification still rings.
+        console.warn("[FCM] CallKeep from background skipped:", e?.message || e);
       }
+    });
+
+    // Tapped a notification that cold-started the app.
+    messaging()
+      .getInitialNotification()
+      .then((remoteMessage) => routeIfCall(remoteMessage?.data || {}))
+      .catch(() => {});
+
+    // Tapped a notification while the app was backgrounded.
+    messaging().onNotificationOpenedApp((remoteMessage) => {
+      routeIfCall(remoteMessage?.data || {});
+    });
+
+    // Foreground notification message. Android does NOT auto-display these, and
+    // the socket path can miss the call if the connection dropped -- so treat it
+    // as another route into the call screen. Displaying the same call twice is
+    // harmless: Notifee replaces by notification id.
+    messaging().onMessage((remoteMessage) => {
+      routeIfCall(remoteMessage?.data || {});
     });
   } catch (e) {
     console.warn("[FCM] background handler not registered:", e?.message || e);
@@ -42,14 +88,13 @@ if (hasNotifeeNative()) {
     const notifeeModule = require("@notifee/react-native");
     const notifee = notifeeModule.default || notifeeModule;
     const { EventType } = notifeeModule;
-    const {
-      declineCallFromNotification,
-      savePendingCall,
-    } = require("./src/services/IncomingCallService");
+    const { declineCallFromNotification } = require("./src/services/IncomingCallService");
+    const { emitCallRoute } = require("./src/services/callRouter");
 
     notifee.onBackgroundEvent(async ({ type, detail }) => {
       const data = detail.notification?.data || {};
       if (data.type !== "incoming_call") return;
+
       if (type === EventType.ACTION_PRESS && detail.pressAction?.id === "decline") {
         await declineCallFromNotification(
           String(data.call_id || ""),
@@ -57,17 +102,15 @@ if (hasNotifeeNative()) {
         );
         return;
       }
-      if (
-        (type === EventType.ACTION_PRESS && detail.pressAction?.id === "accept") ||
-        type === EventType.PRESS ||
-        type === EventType.ACTION_PRESS
-      ) {
-        await savePendingCall({ ...data, action: "accept" });
-        try {
-          await notifee.cancelNotification(`call_${data.call_id}`);
-        } catch {
-          await notifee.cancelAllNotifications();
-        }
+      if (type === EventType.ACTION_PRESS && detail.pressAction?.id === "accept") {
+        emitCallRoute({ ...data, action: "accept" });
+      } else if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
+        emitCallRoute({ ...data, action: "ring" });
+      }
+      try {
+        await notifee.cancelNotification(`call_${data.call_id}`);
+      } catch {
+        /* ignore */
       }
     });
   } catch (e) {

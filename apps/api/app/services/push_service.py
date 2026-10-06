@@ -1,4 +1,15 @@
-"""Push notifications via FCM (data-only for calls)."""
+"""Push notifications via FCM.
+
+Two delivery modes:
+
+* ``send_push`` (data_only=False) sends a *notification* message. Android
+  renders it from the system tray, so it works even when the app has been
+  force-stopped. Used for calls: a data-only message is NOT delivered to a
+  killed app, which is why incoming calls never arrived.
+
+* ``send_push`` (data_only=True) sends a data message, only for a process that
+  is already alive.
+"""
 
 from __future__ import annotations
 
@@ -68,44 +79,92 @@ async def send_push(
     data_only: bool = False,
     ttl_seconds: Optional[int] = None,
     channel_id: str = "app_notifications",
+    full_screen: bool = False,
+    loop_sound: bool = False,
+    category: Optional[str] = None,
 ) -> bool:
+    """Send one FCM message.
+
+    full_screen=True marks the notification as a time-critical call alert:
+    Android may then launch the app over the lock screen, which is what makes an
+    incoming call look like WhatsApp. It also keeps the ring repeating.
+    """
     if not token:
         return False
     if not _ensure_firebase():
-        logger.info("PUSH (dry-run) %s | %s | data_only=%s data=%s", title, body, data_only, data)
-        await _incr_metric("metrics:fcm_ok")
-        return True
+        # Report the failure honestly. Previously this logged a "dry-run" and
+        # returned True, so a misconfigured server looked like a healthy one and
+        # the missing killed-state ring was invisible in the metrics.
+        logger.error(
+            "PUSH FAILED (Firebase not configured) %s | %s | data_only=%s",
+            title,
+            body,
+            data_only,
+        )
+        await _incr_metric("metrics:fcm_fail")
+        return False
 
     from firebase_admin import messaging
 
     str_data = {str(k): str(v) for k, v in (data or {}).items() if v is not None}
     ttl = timedelta(seconds=ttl_seconds) if ttl_seconds else None
-    android = messaging.AndroidConfig(
-        priority="high",
-        ttl=ttl,
-        notification=(
-            None
-            if data_only
-            else messaging.AndroidNotification(
-                channel_id=channel_id,
-                sound="default",
-                # White silhouette installed by
-                # plugins/withAndroidNotificationIcon.js. FCM renders this
-                # when the app is killed; without it Android falls back to the
-                # launcher icon, which tints to an unreadable white blob.
-                icon="ic_notification",
-                color="#0F766E",
-            )
-        ),
-    )
+
+    if data_only:
+        android = messaging.AndroidConfig(priority="high", ttl=ttl, notification=None)
+    else:
+        android_notification = messaging.AndroidNotification(
+            channel_id=channel_id,
+            sound="default",
+            # White silhouette installed by
+            # plugins/withAndroidNotificationIcon.js. FCM renders this when the
+            # app is killed; without it Android falls back to the launcher icon.
+            icon="ic_notification",
+            color="#0F766E",
+        )
+        if full_screen:
+            # AndroidNotification has no full-screen flag; FCM maps these
+            # extras onto the notification so the OS treats it as an alarm-class
+            # alert that can take over the screen.
+            # `priority` encodes to FCM's notification_priority and takes one of
+            # "default" / "min" / "low" / "high" / "max".
+            android_notification.priority = "max"
+            android_notification.visibility = "public"
+            android_notification.default_vibrate_timings = True
+            android_notification.vibrate_timings_millis = [300, 500, 300, 500]
+            android_notification.default_sound = True
+            # No click_action: FCM treats it as an Intent action and it is
+            # ignored unless the app declares a matching intent-filter. The tap
+            # is routed by the data payload instead (see the mobile callRouter).
+            android_notification.tag = str_data.get("call_id", "incoming_call")
+            # Deliberately not sticky: a sticky notification survives the call
+            # ending and the user cannot swipe it away.
+        # NOTE: Android has no FCM `category` field -- the CALL category is
+        # applied in-app by Notifee. `category` below sets the iOS APNs one.
+        if channel_id == "incoming_calls_v1":
+            android_notification.default_sound = True
+        android = messaging.AndroidConfig(
+            priority="high",
+            ttl=ttl,
+            notification=android_notification,
+        )
+
+    # On iOS a call must set content-available so the app can be woken, and
+    # sound must be present for the ring to play while backgrounded.
+    # Note: no CriticalSound -- that needs Apple's critical-alerts entitlement,
+    # and requesting it without one makes the whole push fail.
     apns = messaging.APNSConfig(
+        headers={"apns-priority": "10", "apns-push-type": "alert"}
+        if not data_only
+        else {"apns-priority": "5", "apns-push-type": "background"},
         payload=messaging.APNSPayload(
             aps=messaging.Aps(
                 content_available=True,
                 sound=None if data_only else "default",
+                category="INCOMING_CALL" if loop_sound else None,
             )
-        )
+        ),
     )
+
     message = messaging.Message(
         notification=None if data_only else messaging.Notification(title=title, body=body),
         data=str_data,

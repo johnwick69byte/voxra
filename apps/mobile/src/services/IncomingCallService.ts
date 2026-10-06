@@ -123,14 +123,20 @@ export function registerNotifeeForeground() {
   const notifee = getNotifee();
   if (!notifee) return () => {};
   const { EventType } = require("@notifee/react-native");
+  const { emitCallRoute } = require("./callRouter");
   return notifee.onForegroundEvent(async ({ type, detail }: any) => {
     const data = detail.notification?.data || {};
     if (data.type !== "incoming_call") return;
     if (type === EventType.ACTION_PRESS && detail.pressAction?.id === "decline") {
       await declineCallFromNotification(String(data.call_id), String(data.decline_token || ""));
+      return;
     }
     if (type === EventType.ACTION_PRESS && detail.pressAction?.id === "accept") {
-      await savePendingCall({ ...data, action: "accept" });
+      emitCallRoute({ ...data, action: "accept" });
+      return;
+    }
+    if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
+      emitCallRoute({ ...data, action: "ring" });
     }
   });
 }

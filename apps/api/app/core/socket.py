@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, Optional
 
 import socketio
@@ -11,6 +12,10 @@ from app.core.database_redis import get_redis, presence_key
 logger = logging.getLogger(__name__)
 
 sid_to_user_id: Dict[str, str] = {}
+
+# Throttles the denormalized is_online flag refresh so a heartbeat every 20s
+# does not become a Mongo write every 20s per connected creator.
+_last_flag_refresh: Dict[str, float] = {}
 
 sio = socketio.AsyncServer(
     async_mode="asgi",
@@ -32,6 +37,7 @@ async def disconnect(sid):
         # Only mark offline if no other sids for this user
         still = [s for s, u in sid_to_user_id.items() if u == user_id]
         if not still:
+            _last_flag_refresh.pop(user_id, None)
             try:
                 r = get_redis()
                 if r:
@@ -92,6 +98,23 @@ async def heartbeat(sid, data=None):
             await r.set(presence_key(user_id), "1", ex=90)
     except Exception:
         pass
+    # Keep the denormalized is_online flag fresh for creators. Without this the
+    # profile flag only changed on connect/disconnect, so browse showed a creator
+    # as OFFLINE while they were actively using the app.
+    CACHE_TTL = 60
+    try:
+        now = time.time()
+        if now - _last_flag_refresh.get(user_id, 0) > CACHE_TTL:
+            _last_flag_refresh[user_id] = now
+            from app.core.database import get_db
+            from app.services import presence_service
+
+            db = get_db()
+            u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_type": 1})
+            if u and u.get("user_type") == "creator":
+                await presence_service.mark_creator_online(user_id)
+    except Exception:
+        logger.exception("heartbeat presence refresh failed for %s", user_id)
     return {"ok": True}
 
 

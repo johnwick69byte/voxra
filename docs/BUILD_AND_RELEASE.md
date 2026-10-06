@@ -264,6 +264,11 @@ EXPO_PUBLIC_APP_SCHEME=simpletalk
 ```
 
 ### API (server secrets — Render dashboard)
+
+**`REDIS_URL` (or the `UPSTASH_*` pair) is mandatory, not optional.** Without it
+creator online/offline status can never update, so the Home "Active" filter stays
+empty and every creator looks offline. `GET /api/healthz` now reports
+`redis_configured` / `redis_ok` — check it after deploying.
 ```
 BACKEND_URL=https://voxra-dkfe.onrender.com
 ENVIRONMENT=production
@@ -321,6 +326,74 @@ Current Expo SDK rejects these at prebuild, so they must stay out of
 |-------------|-----|-------------|
 | `expo.notification` | `withAndroidDangerousBaseMod` hard-errors: *"The `notification` property in app config is no longer supported. Use the `expo-notifications` config plugin instead."* | `plugins/withAndroidNotificationIcon.js` copies the drawables and sets `android.default_notification_icon` / `..._color` in the manifest |
 | `android.edgeToEdgeEnabled` | Warned as obsolete — Android 16 makes edge-to-edge mandatory | Nothing; edge-to-edge is now the default |
+| `expo-build-properties` → `compileSdkVersion` / `targetSdkVersion` | Pinning `35` broke the build: `androidx.camera:*:1.6.0`, `androidx.activity:1.11.0` and `androidx.core:1.18.0` all *require* compileSdk 36, and Gradle fails `checkReleaseAarMetadata` | Leave them unset so Expo SDK 57's own defaults apply (verified: `ExpoModulesCorePlugin.gradle` → `safeExtGet("compileSdkVersion", 36)` / `targetSdkVersion", 36`) |
+
+**Do not re-pin the SDK versions.** That pin is what caused the
+`13 issues were found when checking AAR metadata` failure. If a future Expo
+upgrade needs a different level, let the SDK default win unless a dependency
+explicitly demands otherwise.
+
+### Verify before you build (saves a ~8 minute round trip)
+
+```powershell
+cd F:\startup\voxora\apps\mobile
+npm run verify:android
+```
+
+Runs in seconds and needs no Android SDK or Gradle. It catches the exact classes
+of error that have broken this build:
+
+- **App config** — `notification`, `edgeToEdgeEnabled`, `newArchEnabled`,
+  `android.jsEngine`, and stale `compileSdk`/`targetSdk` pins.
+- **Notification icons** — a missing density bucket, or a glyph that isn't pure
+  white on transparency (Android discards colour).
+- **Manifest resources** — a literal hex where AAPT needs a `@color/...`
+  reference, and any `@drawable`/`@color` that doesn't resolve.
+
+Add `--prebuild` to regenerate `android/` and validate the manifest as well:
+
+```powershell
+python scripts\verify_android_resources.py --prebuild
+```
+
+Then check the app config against Expo's schema:
+
+```powershell
+npx expo-doctor@latest      # currently 21/21
+```
+
+If `expo-doctor` ever fails on the React Native Directory check, note that
+`react-native-callkeep` and `@notifee/react-native` are deliberately excluded in
+`package.json` (`expo.doctor.reactNativeDirectoryCheck.exclude`):
+
+- **react-native-callkeep** is a legacy bridge module (no TurboModule spec), so
+  React Native Directory labels it "Untested on New Architecture". It runs
+  through RN's interop layer, and incoming calls have native fallbacks
+  (`CallForegroundService` + full-screen intent). This is the single most
+  important thing to confirm during device QA: ring a call with the app
+  force-killed and answer it.
+- **@notifee/react-native** is unmaintained but stable, and is required for the
+  MAX importance / DND bypass / looping ringtone that incoming calls need.
+
+### Release minification is currently off
+
+`enableProguardInReleaseBuilds` is **not** set, so `minifyEnabled` defaults to
+`false` (`android/app/build.gradle`). That is deliberate for now: no release
+build has ever completed, so no ProGuard keep-rule set has ever been validated,
+and a missing keep for Agora / FCM / Notifee / CallKeep fails *only* in release —
+the hardest possible time to diagnose on a device. Leaving it off keeps release
+behaviour identical to the debug builds used during QA.
+
+Once `docs/CALL_FLOW_TESTS.md` passes on real devices, re-enable it with:
+
+```json
+["expo-build-properties", {
+  "android": { "minSdkVersion": 24, "enableProguardInReleaseBuilds": true }
+}]
+```
+
+and re-run the full call matrix on a **release** build before shipping. Expect
+to add keep rules for `io.agora` and `com.callstack`.
 
 If you ever add `expo-notifications`, delete
 `plugins/withAndroidNotificationIcon.js` and use its `icon`/`color` options

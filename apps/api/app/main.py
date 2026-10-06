@@ -49,6 +49,9 @@ async def lifespan(app: FastAPI):
         await connect_redis()
     except Exception:
         logger.warning("Redis unavailable at startup — presence/locks degraded until Redis is up")
+    from app.services import presence_service
+
+    await presence_service.ensure_redis_or_warn()
     task = asyncio.create_task(_sweeper_loop())
     logger.info("Simple Talk API started")
     yield

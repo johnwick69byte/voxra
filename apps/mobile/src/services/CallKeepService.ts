@@ -36,13 +36,13 @@ export async function setupCallKeep() {
           maximumCallsPerCallGroup: "1",
         },
         android: {
-          alertTitle: "Phone account permission",
+          alertTitle: "Allow calls to be managed",
           alertDescription:
-            "Simple Talk needs phone account access to show incoming calls on the lock screen.",
+            "Simple Talk needs phone account access to show incoming calls on your lock screen and over other apps.",
           cancelButton: "Cancel",
-          okButton: "OK",
+          okButton: "Allow",
           // Requested alongside the phone account so the Telecom connection can
-          // actually be created on first run.
+          // be created on first run.
           additionalPermissions: [
             "android.permission.READ_PHONE_STATE",
             "android.permission.CALL_PHONE",
@@ -55,6 +55,12 @@ export async function setupCallKeep() {
           },
         },
       });
+      // Required on Android: sets hasListeners and hands the phone-account handle
+      // to VoiceConnectionService. Without it every CallKeep event is dropped
+      // (sendEventToJS checks hasListeners) and answer/end callbacks never fire.
+      if (Platform.OS === "android" && typeof CallKeep.registerAndroidEvents === "function") {
+        CallKeep.registerAndroidEvents();
+      }
       ready = true;
     } catch (e) {
       console.warn("[CallKeep] setup failed", e);
@@ -75,6 +81,42 @@ export async function hasPhoneAccount(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Ensure the Telecom phone account exists, triggering the system dialog if not.
+ *
+ * `registerPhoneAccount` is the only way to reach that dialog. Sending the user
+ * to app Settings (the previous approach) could never grant it, because a phone
+ * account is not a normal runtime permission and has no settings toggle.
+ */
+export async function ensurePhoneAccount(): Promise<boolean> {
+  if (!CallKeep || Platform.OS !== "android") return true;
+  await setupCallKeep();
+
+  if (await hasPhoneAccount()) return true;
+
+  try {
+    await CallKeep.registerPhoneAccount({
+      android: {
+        alertTitle: "Allow calls to be managed",
+        alertDescription:
+          "Simple Talk needs phone account access to show incoming calls on your lock screen and over other apps.",
+        cancelButton: "Cancel",
+        okButton: "Allow",
+      },
+    });
+  } catch (e) {
+    console.warn("[CallKeep] registerPhoneAccount failed", e);
+    return false;
+  }
+
+  // The dialog is asynchronous; give Android a moment to record the account.
+  for (let i = 0; i < 6; i += 1) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (await hasPhoneAccount()) return true;
+  }
+  return false;
 }
 
 export async function reportIncomingCallToCallKit(payload: Record<string, any>) {
@@ -103,4 +145,45 @@ export async function endCallKeepCall(callId: string) {
   } catch {
     /* ignore */
   }
+}
+
+let listenersBound = false;
+
+/**
+ * Route native call-UI actions (answer / end from the lock screen) into the app.
+ *
+ * Without this the CallKeep notification can be answered but nothing happens:
+ * the JS side never hears about it and the Agora room is never joined.
+ */
+export function bindCallKeepListeners() {
+  if (!CallKeep || listenersBound) return;
+  listenersBound = true;
+  const { emitCallRoute } = require("./callRouter");
+
+  const safeOn = (event: string, handler: (payload: any) => void) => {
+    try {
+      if (typeof CallKeep.addEventListener === "function") {
+        CallKeep.addEventListener(event, handler);
+      } else if (typeof CallKeep.on === "function") {
+        CallKeep.on(event, handler);
+      }
+    } catch (e) {
+      console.warn(`[CallKeep] could not bind ${event}`, e);
+    }
+  };
+
+  // User answered from the native/lock-screen call UI.
+  safeOn("answerCall", ({ callUUID }: any) => {
+    emitCallRoute({ call_id: String(callUUID || ""), action: "accept", type: "incoming_call" });
+  });
+
+  // User rejected/hung up before answering.
+  safeOn("endCall", ({ callUUID }: any) => {
+    emitCallRoute({ call_id: String(callUUID || ""), action: "decline", type: "incoming_call" });
+  });
+
+  // The OS ended the call (e.g. another call took over).
+  safeOn("didPerformEndCallAction", ({ callUUID }: any) => {
+    emitCallRoute({ call_id: String(callUUID || ""), action: "decline", type: "incoming_call" });
+  });
 }

@@ -576,36 +576,64 @@ export default function CallScreen() {
     }
   };
 
-  // Caller-side ring deadline. The server is authoritative (it marks the call
-  // MISSED after CALL_RING_TIMEOUT_SECONDS and emits call_missed), but this
-  // guarantees the caller's UI never rings forever if a socket event is lost.
-  // It re-checks rather than testing once, so a slow accept still lands.
+  // Caller-side ring supervision.
+  //
+  // The socket is the fast path, but it cannot be trusted alone: if the
+  // connection drops (it was rejected outright until the CORS wildcard fix),
+  // the caller would ring until the deadline without ever learning the call had
+  // been declined. Polling the server's own record makes the outcome definitive,
+  // and distinguishes "declined" from "no answer".
   useEffect(() => {
     if (role !== "caller") return;
     if (!status.startsWith("Ring")) return;
 
     const deadline = Date.now() + RING_DEADLINE_MS;
-    const poll = setInterval(async () => {
-      if (endingRef.current || !statusRef.current.startsWith("Ring")) {
-        clearInterval(poll);
-        return;
-      }
-      if (Date.now() >= deadline) {
-        clearInterval(poll);
-        try {
-          const res = await callsAPI.active();
-          const st = res.data?.call?.status;
-          if (!st || !["RINGING", "ACCEPTED", "LIVE"].includes(st)) {
-            Toast.show({ type: "info", text1: "No answer" });
-            await leave({ review: false });
-          }
-        } catch {
-          /* socket may still deliver call_missed */
-        }
-      }
-    }, 3000);
+    let stopped = false;
 
-    return () => clearInterval(poll);
+    const poll = setInterval(async () => {
+      if (stopped || endingRef.current || !statusRef.current.startsWith("Ring")) return;
+      try {
+        const res = await callsAPI.active();
+        const call = res.data?.call;
+        // No active call at all means it was withdrawn (cancelled/missed).
+        if (!call) {
+          stopped = true;
+          clearInterval(poll);
+          Toast.show({ type: "info", text1: "No answer" });
+          await leave({ review: false });
+          return;
+        }
+        if (call.status === "REJECTED") {
+          stopped = true;
+          clearInterval(poll);
+          Toast.show({ type: "info", text1: "Call declined" });
+          await leave({ review: false });
+          return;
+        }
+        if (call.status === "MISSED" || call.status === "CANCELLED") {
+          stopped = true;
+          clearInterval(poll);
+          Toast.show({ type: "info", text1: "No answer" });
+          await leave({ review: false });
+          return;
+        }
+        // ACCEPTED/LIVE arrive via the socket; nothing to do here.
+      } catch {
+        /* transient; keep polling */
+      }
+
+      if (Date.now() >= deadline) {
+        stopped = true;
+        clearInterval(poll);
+        Toast.show({ type: "info", text1: "No answer" });
+        await leave({ review: false });
+      }
+    }, 2500);
+
+    return () => {
+      stopped = true;
+      clearInterval(poll);
+    };
   }, [role, status, leave]);
 
   const mm = String(Math.floor(seconds / 60)).padStart(2, "0");

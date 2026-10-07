@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import List
+from typing import List, Union
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -71,10 +71,18 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
-    def socketio_cors_list(self) -> List[str]:
+    def socketio_cors_list(self) -> Union[str, List[str]]:
+        """Origins socket.io accepts.
+
+        Returns the *string* "*" for a wildcard, not ["*"]. engine.io only
+        treats the bare string as "allow everything"; a one-element list is
+        matched by exact membership, so ["*"] rejects every real Origin and the
+        WebSocket upgrade fails with 403 -- which silently broke presence, live
+        call signalling and status updates.
+        """
         raw = self.socketio_cors_origins.strip()
-        if raw == "*":
-            return ["*"]
+        if raw == "*" or not raw:
+            return "*"
         return [o.strip() for o in raw.split(",") if o.strip()]
 
 

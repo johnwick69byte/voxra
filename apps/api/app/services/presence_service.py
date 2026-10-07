@@ -6,8 +6,14 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
+from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.database_redis import get_redis, presence_key, ring_lock_key
+from app.core.database_redis import (
+    get_redis,
+    presence_key,
+    ring_lock_key,
+    call_billing_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,14 +93,7 @@ async def get_creator_status(creator_id: str, profile: Optional[dict] = None) ->
             return "BUSY"
     except Exception:
         pass
-    active = await db.call_records.find_one(
-        {
-            "receiver_id": creator_id,
-            "status": {"$in": ["RINGING", "ACCEPTED", "LIVE"]},
-        },
-        {"_id": 0, "call_id": 1},
-    )
-    if active:
+    if await _has_live_call(db, creator_id):
         return "BUSY"
     presence = await is_online(creator_id)
     if presence is False:
@@ -105,6 +104,67 @@ async def get_creator_status(creator_id: str, profile: Optional[dict] = None) ->
         # claiming the creator is offline.
         return "ACTIVE" if profile.get("is_online") else "OFFLINE"
     return "ACTIVE"
+
+
+async def _has_live_call(db, creator_id: str) -> bool:
+    """Whether this creator has a genuinely in-progress call.
+
+    Only counts calls that are plausibly still happening. A RINGING row older
+    than the ring timeout, or an ACCEPTED row that never went LIVE, means the
+    handshake died -- treating those as BUSY is what left a creator stuck
+    unringable. Such rows are finalised here so the state self-heals on the next
+    read rather than waiting for the sweeper.
+    """
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    rows = await db.call_records.find(
+        {
+            "receiver_id": creator_id,
+            "status": {"$in": ["RINGING", "ACCEPTED", "LIVE"]},
+        },
+        {"_id": 0, "call_id": 1, "status": 1, "created_at": 1, "accepted_at": 1},
+    ).to_list(10)
+    if not rows:
+        return False
+
+    from app.services import call_service
+
+    for row in rows:
+        status = row.get("status")
+        if status == "RINGING":
+            created = row.get("created_at") or now
+            if getattr(created, "tzinfo", None) is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if (now - created).total_seconds() <= settings.call_ring_timeout_seconds + 15:
+                return True
+            # Stale ring: the timeout task was lost (e.g. server restart).
+            await call_service.miss_call(row["call_id"])
+            continue
+
+        if status == "ACCEPTED":
+            accepted = row.get("accepted_at") or row.get("created_at") or now
+            if getattr(accepted, "tzinfo", None) is None:
+                accepted = accepted.replace(tzinfo=timezone.utc)
+            if (now - accepted).total_seconds() <= 120:
+                return True
+            await call_service.finalize_call(row["call_id"], status="ENDED_DISCONNECT")
+            continue
+
+        # LIVE: the billing loop refreshes a Redis key every minute.
+        try:
+            r = get_redis()
+            if r and await r.exists(call_billing_key(row["call_id"])):
+                return True
+        except Exception:
+            return True
+        accepted = row.get("accepted_at") or row.get("created_at") or now
+        if getattr(accepted, "tzinfo", None) is None:
+            accepted = accepted.replace(tzinfo=timezone.utc)
+        if (now - accepted).total_seconds() <= 120:
+            return True
+        await call_service.finalize_call(row["call_id"], status="ENDED_DISCONNECT")
+
+    return False
 
 
 async def ensure_redis_or_warn() -> bool:

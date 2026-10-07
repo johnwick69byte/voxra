@@ -5,9 +5,16 @@ from __future__ import annotations
 import logging
 import time
 
+from fastapi import HTTPException
+
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Agora RTC roles, as plain integers. agora-token-builder 1.0.0 expects these
+# values directly and does not export named constants.
+ROLE_PUBLISHER = 1
+ROLE_SUBSCRIBER = 2
 
 
 def uid_for_user(user_id: str) -> int:
@@ -45,10 +52,22 @@ def build_rtc_token(channel_name: str, uid: int = 0, role: str = "publisher", ex
             "uid": uid,
             "expire_at": int(time.time()) + expire_seconds,
         }
-    try:
-        from agora_token_builder import RtcTokenBuilder, Role_Publisher, Role_Subscriber
+    if not cert:
+        # Without the certificate no valid token can be minted. Failing loudly
+        # here is much easier to diagnose than a client-side "failed to join".
+        logger.error("AGORA_APP_CERTIFICATE is not set — cannot mint an RTC token")
+        raise HTTPException(500, "Voice/video is not configured on the server")
 
-        role_const = Role_Publisher if role == "publisher" else Role_Subscriber
+    try:
+        from agora_token_builder import RtcTokenBuilder
+
+        # agora-token-builder 1.0.0 does NOT export Role_Publisher /
+        # Role_Subscriber. The role is a plain integer:
+        #   1 = publisher (broadcaster, can send audio/video)
+        #   2 = subscriber (audience, receive only)
+        # Importing the names raised ImportError, which surfaced as a 500 on
+        # /calls/{id}/accept and a "failed to join" on the client.
+        role_const = ROLE_PUBLISHER if role == "publisher" else ROLE_SUBSCRIBER
         privilege_expired_ts = int(time.time()) + expire_seconds
         token = RtcTokenBuilder.buildTokenWithUid(
             app_id, cert, channel_name, uid, role_const, privilege_expired_ts
@@ -60,6 +79,8 @@ def build_rtc_token(channel_name: str, uid: int = 0, role: str = "publisher", ex
             "uid": uid,
             "expire_at": privilege_expired_ts,
         }
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Agora token build failed")
         raise

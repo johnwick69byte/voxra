@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import random
 import uuid
 from typing import Optional
@@ -179,11 +179,33 @@ async def browse_creators(
     )
     umap = {u["user_id"]: u for u in users_list}
 
-    # One query to know which of these creators are currently on a call.
+    # One query to know which of these creators are genuinely on a call.
+    # Rows are time-bounded so a stale RINGING/ACCEPTED record (dead handshake)
+    # does not mark someone BUSY forever in the list. The authoritative
+    # self-heal lives in presence_service.get_creator_status.
+    now_utc = datetime.now(timezone.utc)
+    ring_grace = get_settings().call_ring_timeout_seconds + 15
     active_calls = (
         await db.call_records.distinct(
             "receiver_id",
-            {"receiver_id": {"$in": ids}, "status": {"$in": ["RINGING", "ACCEPTED", "LIVE"]}},
+            {
+                "receiver_id": {"$in": ids},
+                "status": {"$in": ["RINGING", "ACCEPTED", "LIVE"]},
+                "$or": [
+                    {
+                        "status": "RINGING",
+                        "created_at": {"$gte": now_utc - timedelta(seconds=ring_grace)},
+                    },
+                    {
+                        "status": "ACCEPTED",
+                        "accepted_at": {"$gte": now_utc - timedelta(minutes=2)},
+                    },
+                    {
+                        "status": "LIVE",
+                        "accepted_at": {"$gte": now_utc - timedelta(minutes=2)},
+                    },
+                ],
+            },
         )
         if ids
         else []

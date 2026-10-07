@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { View, ActivityIndicator, Alert, Linking } from "react-native";
+import { View, ActivityIndicator } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 import Toast from "react-native-toast-message";
 import { useAuthStore } from "../src/store/authStore";
@@ -36,6 +36,13 @@ export default function RootLayout() {
 
   useEffect(() => {
     hydrate();
+    // Bind CallKeep's answer/end listeners before setup so lock-screen actions
+    // reach the app.
+    try {
+      require("../src/services/CallKeepService").bindCallKeepListeners();
+    } catch {
+      /* native module unavailable */
+    }
     setupCallKeep();
     // Must exist before the first FCM push, otherwise Android falls back to a
     // silent channel with the launcher icon.
@@ -56,33 +63,11 @@ export default function RootLayout() {
     if (!user || !token) return;
 
     registerDevicePushToken();
-    // Ask for camera/mic/notifications up front. Deferring these to the moment
-    // a call arrives meant the first incoming call was missed while the user
-    // was still reading permission dialogs.
+    // Camera, mic, notifications and the Telecom phone account, once per
+    // session. Every branch is a no-op when the permission is already held, so
+    // this never re-prompts. Requesting it at login rather than mid-call means
+    // the first incoming call is not missed while dialogs are on screen.
     ensureAllPermissions();
-
-    // Android silently drops displayIncomingCall() without a phone account, so
-    // the full-screen call UI never appears. Surface that once instead of
-    // leaving the user with an unexplained nothing.
-    (async () => {
-      try {
-        const { hasPhoneAccount, setupCallKeep } = require("../src/services/CallKeepService");
-        await setupCallKeep();
-        const ok = await hasPhoneAccount();
-        if (!ok) {
-          Alert.alert(
-            "Turn on call access",
-            "Simple Talk needs phone account access to show incoming calls on your lock screen and over other apps. Tap Settings, then allow Phone / Call access.",
-            [
-              { text: "Later", style: "cancel" },
-              { text: "Settings", onPress: () => Linking.openSettings() },
-            ]
-          );
-        }
-      } catch {
-        /* best effort */
-      }
-    })();
 
     (async () => {
       try {
@@ -143,6 +128,19 @@ export default function RootLayout() {
     };
 
     const openIncoming = async (payload: any, opts?: { action?: string }) => {
+      // A decline coming from the native call UI must reject server-side, not
+      // open the in-app screen.
+      if (opts?.action === "decline") {
+        try {
+          await callsAPI.reject(String(payload?.call_id || ""), String(payload?.decline_token || ""));
+        } catch {
+          /* already handled */
+        }
+        await cancelCallNotification(payload?.call_id);
+        useCallStore.getState().setIncomingOpen(null);
+        setIncoming(null);
+        return;
+      }
       if (!claimCall(payload?.call_id)) return;
       const isAccept = opts?.action === "accept";
       useCallStore.getState().setIncomingOpen(payload?.call_id ?? null);

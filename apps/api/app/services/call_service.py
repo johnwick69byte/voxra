@@ -282,6 +282,19 @@ async def accept_call(*, call_id: str, user: dict) -> dict:
     if call["status"] != "RINGING":
         raise HTTPException(409, f"Call not ringing (status={call['status']})")
 
+    # Mint tokens BEFORE mutating the call. If this fails the call stays RINGING,
+    # where the ring timeout and sweeper can still clean it up. Flipping to
+    # ACCEPTED first left the row stuck in a state that reads as BUSY forever
+    # (a 500 here used to leave the creator unringable for the full sweep window).
+    receiver_uid = agora_service.uid_for_user(call["receiver_id"])
+    caller_uid = agora_service.uid_for_user(call["caller_id"])
+    try:
+        receiver_tokens = agora_service.build_rtc_token(call["channel_name"], uid=receiver_uid)
+        caller_tokens = agora_service.build_rtc_token(call["channel_name"], uid=caller_uid)
+    except Exception:
+        logger.exception("accept_call: token mint failed for %s", call_id)
+        raise HTTPException(500, "Could not start the call audio. Please try again.")
+
     now = datetime.now(timezone.utc)
     result = await db.call_records.find_one_and_update(
         {"call_id": call_id, "status": "RINGING"},
@@ -292,11 +305,6 @@ async def accept_call(*, call_id: str, user: dict) -> dict:
         raise HTTPException(409, "Call already handled")
 
     await _clear_ring_lock(call["receiver_id"], call_id)
-    # Distinct uid per participant: sharing uid 0 makes Agora evict one side,
-    # so the call connects but carries no audio.
-    receiver_uid = agora_service.uid_for_user(call["receiver_id"])
-    caller_uid = agora_service.uid_for_user(call["caller_id"])
-    tokens = agora_service.build_rtc_token(call["channel_name"], uid=receiver_uid)
 
     await emit_to_user(
         call["caller_id"],
@@ -305,10 +313,7 @@ async def accept_call(*, call_id: str, user: dict) -> dict:
             "call_id": call_id,
             "channel_name": call["channel_name"],
             # Tokens are channel+uid bound, so each side needs its own.
-            "agora": {
-                **agora_service.build_rtc_token(call["channel_name"], uid=caller_uid),
-                "peer_uid": receiver_uid,
-            },
+            "agora": {**caller_tokens, "peer_uid": receiver_uid},
         },
     )
     await emit_to_user(call["caller_id"], "cancel_call_notification", {"call_id": call_id})
@@ -317,7 +322,7 @@ async def accept_call(*, call_id: str, user: dict) -> dict:
         "success": True,
         "call_id": call_id,
         "channel_name": call["channel_name"],
-        "agora": {**tokens, "peer_uid": caller_uid},
+        "agora": {**receiver_tokens, "peer_uid": caller_uid},
         "rate_per_minute": call["rate_per_minute"],
     }
 
@@ -742,28 +747,70 @@ async def admin_force_end(call_id: str) -> dict:
 async def sweep_stuck_calls() -> int:
     """Clear LIVE/ACCEPTED/RINGING calls older than thresholds."""
     db = get_db()
+    settings = get_settings()
     now = datetime.now(timezone.utc)
     count = 0
-    # Ringing older than 2 min
-    from datetime import timedelta
 
+    # RINGING with no answer. Threshold is slightly above the ring timeout so
+    # the normal timeout path normally wins.
     old_ring = await db.call_records.find(
         {
             "status": "RINGING",
-            "created_at": {"$lt": now - timedelta(minutes=2)},
+            "created_at": {"$lt": now - timedelta(seconds=settings.call_ring_timeout_seconds + 30)},
         }
     ).to_list(100)
     for c in old_ring:
         await miss_call(c["call_id"])
         count += 1
 
-    old_live = await db.call_records.find(
+    # ACCEPTED but never went LIVE. The receiver accepted and then the handshake
+    # died (network drop, client crash, a 500 mid-accept). Until this clears, the
+    # creator reads as BUSY and cannot be rung at all -- previously this waited
+    # 3 HOURS, which is what left a model stuck on Busy.
+    stale_accepted = await db.call_records.find(
         {
-            "status": {"$in": ["ACCEPTED", "LIVE"]},
-            "accepted_at": {"$lt": now - timedelta(hours=3)},
+            "status": "ACCEPTED",
+            "accepted_at": {"$lt": now - timedelta(minutes=2)},
         }
     ).to_list(50)
-    for c in old_live:
+    for c in stale_accepted:
+        await finalize_call(c["call_id"], status="ENDED_DISCONNECT")
+        count += 1
+
+    # LIVE calls whose billing heartbeat stopped. bill_next_minute refreshes the
+    # Redis key every minute, so a missing key means the loop is gone.
+    live = await db.call_records.find(
+        {
+            "status": "LIVE",
+            "accepted_at": {"$lt": now - timedelta(minutes=5)},
+        }
+    ).to_list(50)
+    for c in live:
+        call_id = c["call_id"]
+        try:
+            r = get_redis()
+            if r and await r.exists(call_billing_key(call_id)):
+                continue
+        except Exception:
+            continue
+        # Redis unavailable: fall back to the socket map. If neither side is
+        # connected, the call cannot be progressing.
+        from app.core.socket import sid_to_user_id
+
+        connected = set(sid_to_user_id.values())
+        if c["caller_id"] in connected or c["receiver_id"] in connected:
+            continue
+        await finalize_call(call_id, status="ENDED_DISCONNECT")
+        count += 1
+
+    # Hard ceiling: nothing should outlive this regardless of state.
+    ancient = await db.call_records.find(
+        {
+            "status": {"$in": ["ACCEPTED", "LIVE", "RINGING"]},
+            "created_at": {"$lt": now - timedelta(hours=3)},
+        }
+    ).to_list(50)
+    for c in ancient:
         await finalize_call(c["call_id"], status="ENDED_DISCONNECT")
         count += 1
     return count

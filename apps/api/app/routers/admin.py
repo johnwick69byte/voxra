@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +10,8 @@ from app.core.security import create_access_token, hash_password, require_admin,
 from app.core.socket import emit_to_user
 from app.models.schemas import AdminLoginRequest, BroadcastNotificationRequest
 from app.services import call_service, presence_service, push_service, wallet_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -32,14 +35,20 @@ async def _notify_user(user_id: str, title: str, body: str, ntype: str) -> None:
     )
     push = await db.push_tokens.find_one({"user_id": user_id}, {"_id": 0})
     token = (push or {}).get("device_push_token")
-    if token:
-        await push_service.send_push(
-            token,
-            title=title,
-            body=body,
-            data={"type": ntype},
-            channel_id="app_notifications",
-        )
+    if not token:
+        # An approval that never reached the phone is indistinguishable from a
+        # broken push feature unless we say so.
+        logger.warning("notify %s: no push token registered for user %s", ntype, user_id)
+        return
+    ok = await push_service.send_push(
+        token,
+        title=title,
+        body=body,
+        data={"type": ntype},
+        channel_id="app_notifications",
+    )
+    if not ok:
+        logger.warning("notify %s: push failed for user %s", ntype, user_id)
 
 
 async def _audit(admin_id: str, action: str, meta: dict | None = None):

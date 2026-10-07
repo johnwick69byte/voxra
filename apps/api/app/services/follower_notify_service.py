@@ -32,7 +32,12 @@ async def notify_followers_creator_online(creator_id: str, *, reason: str = "onl
     creator = await db.users.find_one({"user_id": creator_id}, {"_id": 0, "name": 1})
     name = (creator or {}).get("name") or "A creator"
     follows = await db.follows.find({"creator_id": creator_id}, {"_id": 0, "follower_id": 1}).to_list(2000)
+    if not follows:
+        logger.info("follower online notify creator=%s skipped: no followers", creator_id)
+        return 0
+
     sent = 0
+    no_token = 0
     title = f"{name} is online"
     body = "They're available for an instant call on Simple Talk."
     for f in follows:
@@ -55,14 +60,27 @@ async def notify_followers_creator_online(creator_id: str, *, reason: str = "onl
             {"title": title, "message": body, "type": "creator_online", "creator_id": creator_id},
         )
         token_doc = await db.push_tokens.find_one({"user_id": fid}, {"_id": 0})
-        if token_doc and token_doc.get("device_push_token"):
-            await push_service.send_push(
-                token_doc["device_push_token"],
-                title=title,
-                body=body,
-                data={"type": "creator_online", "creator_id": creator_id},
-                channel_id="app_notifications",
-            )
+        token = (token_doc or {}).get("device_push_token")
+        if not token:
+            # Previously silent -- a follower who never registered a token made
+            # the whole feature look broken with no trace of why.
+            no_token += 1
+            continue
+        ok = await push_service.send_push(
+            token,
+            title=title,
+            body=body,
+            data={"type": "creator_online", "creator_id": creator_id},
+            channel_id="app_notifications",
+        )
+        if ok:
             sent += 1
-    logger.info("follower online notify creator=%s sent=%s", creator_id, sent)
+
+    logger.info(
+        "follower online notify creator=%s followers=%s sent=%s no_token=%s",
+        creator_id,
+        len(follows),
+        sent,
+        no_token,
+    )
     return sent

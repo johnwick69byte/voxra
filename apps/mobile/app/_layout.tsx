@@ -15,6 +15,7 @@ import {
   reportIncomingCallToCallKit,
 } from "../src/services/IncomingCallService";
 import { subscribeCallRoute } from "../src/services/callRouter";
+import { subscribeNavigation } from "../src/services/navigationQueue";
 import { theme } from "../src/theme/tokens";
 import { useAppFonts } from "../src/theme/fonts";
 import { ForceUpdateGate } from "../src/components/ForceUpdateGate";
@@ -62,12 +63,17 @@ export default function RootLayout() {
   useEffect(() => {
     if (!user || !token) return;
 
-    registerDevicePushToken();
-    // Camera, mic, notifications and the Telecom phone account, once per
-    // session. Every branch is a no-op when the permission is already held, so
-    // this never re-prompts. Requesting it at login rather than mid-call means
-    // the first incoming call is not missed while dialogs are on screen.
-    ensureAllPermissions();
+    // Permissions first, then the push token. getToken() succeeds even when
+    // notifications are denied, producing a token that can never display
+    // anything -- so registration must not race the permission dialog.
+    (async () => {
+      // Camera, mic, notifications and the Telecom phone account, once per
+      // session. Every branch is a no-op when the permission is already held,
+      // so this never re-prompts. Doing it at login rather than mid-call means
+      // the first incoming call is not missed while dialogs are on screen.
+      await ensureAllPermissions();
+      await registerDevicePushToken();
+    })();
 
     (async () => {
       try {
@@ -204,6 +210,12 @@ export default function RootLayout() {
       await openIncoming(payload, { action: payload.action });
     });
 
+    // Taps on non-call notifications (creator online, approval, withdrawal).
+    // Buffered when the tap cold-started the app, so it still navigates.
+    const unsubscribeNav = subscribeNavigation((path) => {
+      router.push(path as never);
+    });
+
     // Anything received before this screen mounted (app cold-started by a tap).
     (async () => {
       const pending = await consumePendingCall();
@@ -214,6 +226,7 @@ export default function RootLayout() {
 
     return () => {
       unsubscribeRoute();
+      unsubscribeNav();
       socketService.off("incoming_call", onIncoming);
       socketService.off("cancel_call_notification", onCancelNotif);
       socketService.off("call_cancelled", onCancelNotif);

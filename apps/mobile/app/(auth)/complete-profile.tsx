@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   View,
   StyleSheet,
-  Image,
   Pressable,
   ScrollView,
   KeyboardAvoidingView,
@@ -10,7 +9,6 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
 import Toast from "react-native-toast-message";
 import { authAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
@@ -35,7 +33,6 @@ export default function CompleteProfile() {
   const [category, setCategory] = useState("");
   const [languages, setLanguages] = useState<string[]>([]);
   const [social, setSocial] = useState("");
-  const [picture, setPicture] = useState<string | undefined>();
   const [errors, setErrors] = useState<Errors>({});
   const [loading, setLoading] = useState(false);
   const isCreator = userType === "creator";
@@ -65,23 +62,6 @@ export default function CompleteProfile() {
     }, 400);
     return () => clearTimeout(timer);
   }, [username, isCreator]);
-
-  const pickAvatar = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Toast.show({ type: "error", text1: "Photo permission required" });
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.7,
-      base64: true,
-      allowsEditing: true,
-      aspect: [1, 1],
-    });
-    if (result.canceled || !result.assets?.[0]?.base64) return;
-    setPicture(`data:image/jpeg;base64,${result.assets[0].base64}`);
-  };
 
   const toggleLanguage = (lang: string) => {
     setLanguages((prev) => (prev.includes(lang) ? prev.filter((l) => l !== lang) : [...prev, lang]));
@@ -116,7 +96,6 @@ export default function CompleteProfile() {
         username: isCreator ? username.trim().toLowerCase() : username.trim() || undefined,
         referral_code: referral.trim() || undefined,
         user_type: userType,
-        picture,
         bio: isCreator ? bio.trim() || undefined : undefined,
         gender: isCreator ? gender : undefined,
         category: isCreator ? category : undefined,
@@ -172,15 +151,8 @@ export default function CompleteProfile() {
             </Pressable>
           </View>
 
-          <Pressable onPress={pickAvatar} style={styles.avatarWrap}>
-            {picture ? (
-              <Image source={{ uri: picture }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarEmpty]}>
-                <AppText color={theme.colors.onBrand}>Add photo</AppText>
-              </View>
-            )}
-          </Pressable>
+          {/* Photo capture is intentionally NOT part of signup. Fans never need
+              one, and creators set theirs during photo upload in onboarding. */}
 
           <Input label="Display name" value={name} onChangeText={setName} placeholder="Your name" />
           {errors.name ? <FieldError text={errors.name} /> : null}

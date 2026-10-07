@@ -17,12 +17,35 @@ if (hasFirebaseNative()) {
     const messagingModule = require("@react-native-firebase/messaging");
     const messaging = messagingModule.default || messagingModule;
     const { emitCallRoute } = require("./src/services/callRouter");
+    const {
+      displayGeneralNotification,
+      routeGeneralNotification,
+    } = require("./src/services/inAppNotifications");
 
     function routeIfCall(data) {
       if (data && data.type === "incoming_call") {
         emitCallRoute({ ...data, action: "ring" });
+        return true;
       }
+      return false;
     }
+
+    /**
+     * Foreground push messages.
+     *
+     * Android draws FCM `notification` messages from the system tray only when
+     * the app is backgrounded or killed. In the FOREGROUND the message is
+     * delivered here and nothing appears unless we draw it ourselves -- which is
+     * why "creator is online" and "you're approved" produced no visible
+     * notification while using the app.
+     */
+    messaging().onMessage(async (remoteMessage) => {
+      const data = remoteMessage?.data || {};
+      if (routeIfCall(data)) return;
+      const title = remoteMessage?.notification?.title;
+      const body = remoteMessage?.notification?.body;
+      await displayGeneralNotification({ ...data, title, body });
+    });
 
     // A call arrives as a data message while the process is alive, or as a
     // notification message (the killed/backgrounded path). Android renders the
@@ -59,21 +82,20 @@ if (hasFirebaseNative()) {
     // Tapped a notification that cold-started the app.
     messaging()
       .getInitialNotification()
-      .then((remoteMessage) => routeIfCall(remoteMessage?.data || {}))
+      .then(async (remoteMessage) => {
+        const data = remoteMessage?.data || {};
+        if (!routeIfCall(data)) await routeGeneralNotification(data);
+      })
       .catch(() => {});
 
     // Tapped a notification while the app was backgrounded.
-    messaging().onNotificationOpenedApp((remoteMessage) => {
-      routeIfCall(remoteMessage?.data || {});
+    messaging().onNotificationOpenedApp(async (remoteMessage) => {
+      const data = remoteMessage?.data || {};
+      if (!routeIfCall(data)) await routeGeneralNotification(data);
     });
 
-    // Foreground notification message. Android does NOT auto-display these, and
-    // the socket path can miss the call if the connection dropped -- so treat it
-    // as another route into the call screen. Displaying the same call twice is
-    // harmless: Notifee replaces by notification id.
-    messaging().onMessage((remoteMessage) => {
-      routeIfCall(remoteMessage?.data || {});
-    });
+    // Foreground notification message. Handled above via onMessage so we can
+    // draw non-call pushes ourselves.
   } catch (e) {
     console.warn("[FCM] background handler not registered:", e?.message || e);
   }
@@ -93,7 +115,19 @@ if (hasNotifeeNative()) {
 
     notifee.onBackgroundEvent(async ({ type, detail }) => {
       const data = detail.notification?.data || {};
-      if (data.type !== "incoming_call") return;
+
+      // Non-call notifications: tapping opens the notification centre.
+      if (data.type !== "incoming_call") {
+        if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
+          try {
+            const { queueNavigation } = require("./src/services/navigationQueue");
+            queueNavigation("/notifications");
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
 
       if (type === EventType.ACTION_PRESS && detail.pressAction?.id === "decline") {
         await declineCallFromNotification(

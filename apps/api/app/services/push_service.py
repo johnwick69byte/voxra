@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 
 _firebase_ready = False
 
+# Registration tokens FCM has reported as permanently dead in this process.
+# Kept in memory: they are only consulted immediately after a failed send, to
+# decide whether to delete the stored token.
+_dead_tokens: set[str] = set()
+
 
 async def _incr_metric(key: str) -> None:
     try:
@@ -178,7 +183,65 @@ async def send_push(
         await asyncio.to_thread(messaging.send, message)
         await _incr_metric("metrics:fcm_ok")
         return True
-    except Exception:
+    except Exception as exc:
+        # A token FCM reports as Unregistered/Invalid is permanently dead
+        # (app uninstalled, data cleared, token rotated without an update).
+        # Retrying it forever guarantees the user never receives anything while
+        # looking like a transient failure. Report it so the caller can purge.
+        if _is_dead_token_error(exc):
+            _dead_tokens.add(token)
+            logger.warning(
+                "FCM token is dead (%s) - will be purged on next send",
+                type(exc).__name__,
+            )
+            await _incr_metric("metrics:fcm_dead_token")
+            return False
         logger.exception("FCM send failed")
         await _incr_metric("metrics:fcm_fail")
         return False
+
+
+def token_is_dead(token: str) -> bool:
+    return token in _dead_tokens
+
+
+async def send_to_user(db, user_id: str, **kwargs) -> bool:
+    """Push to a user's stored token, purging it when FCM reports it dead.
+
+    Every notification path should go through here. Without the purge, a device
+    that reinstalled keeps a stale token server-side and pushes fail silently
+    forever -- indistinguishable from "push never worked".
+    """
+    doc = await db.push_tokens.find_one({"user_id": user_id}, {"_id": 0})
+    token = (doc or {}).get("device_push_token")
+    if not token:
+        logger.warning("no push token registered for user %s (type=%s)", user_id, kwargs.get("data", {}).get("type"))
+        return False
+    ok = await send_push(token, **kwargs)
+    if not ok and token_is_dead(token):
+        await db.push_tokens.delete_one({"user_id": user_id, "device_push_token": token})
+        logger.info("purged dead push token for %s", user_id)
+    return ok
+
+
+def _is_dead_token_error(exc: Exception) -> bool:
+    """True when FCM says this registration token can never work again."""
+    try:
+        from firebase_admin import exceptions as fb_exceptions
+        from firebase_admin._messaging_utils import (
+            UnregisteredError,
+            InvalidArgumentError,
+        )
+
+        if isinstance(exc, UnregisteredError):
+            return True
+        if isinstance(exc, InvalidArgumentError):
+            # InvalidArgumentError is returned for malformed tokens and for a
+            # missing/invalid payload; only treat token-shaped ones as dead.
+            return "token" in str(exc).lower()
+        if isinstance(exc, fb_exceptions.NotFoundError):
+            return True
+    except Exception:
+        pass
+    # The messaging layer wraps FCM errors, so fall back to the class name.
+    return type(exc).__name__ in ("UnregisteredError", "SenderIdMismatchError")

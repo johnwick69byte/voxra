@@ -47,7 +47,10 @@ async def _notify_user(user_id: str, title: str, body: str, ntype: str) -> None:
         data={"type": ntype},
         channel_id="app_notifications",
     )
-    if not ok:
+    if not ok and push_service.token_is_dead(token):
+        await db.push_tokens.delete_one({"user_id": user_id, "device_push_token": token})
+        logger.info("purged dead push token for user %s", user_id)
+    elif not ok:
         logger.warning("notify %s: push failed for user %s", ntype, user_id)
 
 

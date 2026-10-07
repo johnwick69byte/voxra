@@ -73,6 +73,11 @@ async def notify_followers_creator_online(creator_id: str, *, reason: str = "onl
             data={"type": "creator_online", "creator_id": creator_id},
             channel_id="app_notifications",
         )
+        if not ok and push_service.token_is_dead(token):
+            # Reinstalled device -- drop the stale token so the next launch
+            # registers a fresh one instead of failing forever.
+            await db.push_tokens.delete_one({"user_id": fid, "device_push_token": token})
+            logger.info("purged dead push token for follower %s", fid)
         if ok:
             sent += 1
 

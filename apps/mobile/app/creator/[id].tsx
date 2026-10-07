@@ -21,7 +21,7 @@ import { StatusDot } from "../../src/components/StatusDot";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText } from "../../src/components/ui";
 import { theme } from "../../src/theme/tokens";
-import { ensureCallPermissions } from "../../src/services/permissions";
+import { ensureCallPermissions, explainPermissionFailure } from "../../src/services/permissions";
 import { ensureCallDisclaimer } from "../../src/services/callDisclaimer";
 
 const LAST_RATE_KEY = "last_viewed_audio_rate";
@@ -41,6 +41,9 @@ export default function CreatorProfile() {
   const router = useRouter();
   const [creator, setCreator] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  // Guards the call buttons: the permission dialog plus the network round trip
+  // take time, and a second tap would start a duplicate call.
+  const [busy, setBusy] = useState(false);
   const [photoIdx, setPhotoIdx] = useState(0);
   const [followBusy, setFollowBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -105,12 +108,20 @@ export default function CreatorProfile() {
 
   const startCall = async (call_type: "AUDIO" | "VIDEO") => {
     if (unavailable) return;
-    const agreed = await ensureCallDisclaimer();
-    if (!agreed) return;
-    const ok = await ensureCallPermissions(call_type === "VIDEO");
-    if (!ok) return;
-    setLoading(true);
+    // Guard against double-taps: the permission dialog and the network round
+    // trip both take time, and a second tap would start a duplicate call.
+    if (busy) return;
+    setBusy(true);
     try {
+      const agreed = await ensureCallDisclaimer();
+      if (!agreed) return;
+      const perm = await ensureCallPermissions(call_type === "VIDEO", { interactive: true });
+      if (!perm.granted) {
+        // Never fail silently -- an unresponsive button is indistinguishable
+        // from a broken app.
+        explainPermissionFailure(perm);
+        return;
+      }
       const status = await creatorsAPI.status(String(id));
       if (!status.data.available || ["DND", "BUSY"].includes(status.data.status)) {
         Alert.alert("Unavailable", status.data.reason || "Creator is not available");
@@ -135,7 +146,7 @@ export default function CreatorProfile() {
         text2: e?.response?.data?.detail || e.message,
       });
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
@@ -372,15 +383,15 @@ export default function CreatorProfile() {
           <PrimaryButton
             label={`Audio · ₹${creator.audio_rate_per_minute}`}
             onPress={() => startCall("AUDIO")}
-            loading={loading}
-            disabled={!!unavailable}
+            loading={busy}
+            disabled={!!unavailable || busy}
             style={{ flex: 1, opacity: unavailable ? 0.45 : 1 }}
           />
           <PrimaryButton
             label={`Video · ₹${creator.video_rate_per_minute}`}
             onPress={() => startCall("VIDEO")}
-            loading={loading}
-            disabled={!!unavailable}
+            loading={busy}
+            disabled={!!unavailable || busy}
             style={{ flex: 1, opacity: unavailable ? 0.45 : 1 }}
           />
         </View>

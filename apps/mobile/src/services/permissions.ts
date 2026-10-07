@@ -3,73 +3,113 @@ import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from "
 import { Camera } from "expo-camera";
 
 /**
- * Permission gates.
+ * Permission handling.
  *
- * Design rules (these were violated before, causing repeated popups):
+ * Rules, learned from two rounds of production bugs:
  *
- * 1. If the permission is already granted, return true SILENTLY. Never show a
- *    rationale when there is nothing to ask for -- that was the "we need
- *    notifications" popup appearing even after the user had granted it.
+ * 1. ALWAYS read the real OS state. Never gate on our own "already asked" flag:
+ *    that silently returned `false` for a permission the user had never been
+ *    asked about, and the caller then did `if (!ok) return;` -- an unresponsive
+ *    button with no explanation.
  *
- * 2. If the OS will still show a dialog, go straight to it. A custom Alert in
- *    front of a system dialog is just an extra tap for no benefit.
+ * 2. Never request permissions in parallel. Android can show ONE system dialog
+ *    at a time; firing camera + mic + notifications together means some requests
+ *    resolve as "denied" without ever being shown. Requests are serialised here.
  *
- * 3. Only show our own Alert when the OS will NOT prompt again
- *    (NEVER_ASK_AGAIN / blocked). Then the only route is Settings, and the
- *    Alert is genuinely useful.
+ * 3. Only a hard denial (`canAskAgain === false`) is terminal, and only that
+ *    routes to Settings. Everything else is recoverable.
  *
- * 4. Never re-prompt in the same app session once we have asked. Android
- *    returns "denied" immediately after a second request, which looks like the
- *    app is nagging.
+ * 4. Never fail silently. Callers get a reason they can show the user.
  */
 
-/** Permissions we have already prompted for during this app session. */
-const askedThisSession = new Set<string>();
+export type PermissionResult = {
+  granted: boolean;
+  /** Why it failed, for display. Undefined when granted. */
+  reason?: "denied" | "blocked" | "unavailable";
+  /** Human-readable next step, when there is one. */
+  message?: string;
+};
 
-function markAsked(key: string) {
-  askedThisSession.add(key);
+const GRANTED: PermissionResult = { granted: true };
+
+/** Serialises system dialogs so two never compete for the screen. */
+let dialogChain: Promise<unknown> = Promise.resolve();
+
+function serialize<T>(task: () => Promise<T>): Promise<T> {
+  const next = dialogChain.then(task, task);
+  // Keep the chain alive even when a task rejects.
+  dialogChain = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
 }
 
-function alreadyAsked(key: string) {
-  return askedThisSession.has(key);
+function blockedResult(what: string): PermissionResult {
+  return {
+    granted: false,
+    reason: "blocked",
+    message: `${what} is turned off for Simple Talk. Enable it in system settings to continue.`,
+  };
 }
 
-/** Camera permission. Silent when granted; straight to the system dialog. */
-export async function ensureCameraPermission(): Promise<boolean> {
-  const { status: existing, canAskAgain } = await Camera.getCameraPermissionsAsync();
-  if (existing === "granted") return true;
+function deniedResult(what: string): PermissionResult {
+  return {
+    granted: false,
+    reason: "denied",
+    message: `${what} access is needed for this. Please allow it when prompted.`,
+  };
+}
 
-  if (existing === "denied" && canAskAgain === false) {
-    offerSettings(
-      "Camera access is off",
-      "Simple Talk needs the camera for video calls. Enable it in system settings."
-    );
-    return false;
+/**
+ * Camera permission.
+ *
+ * `interactive` means a user action triggered this (tapping Video call), so we
+ * always attempt the system dialog when the OS still allows it.
+ */
+export async function ensureCameraPermission(
+  opts?: { interactive?: boolean }
+): Promise<PermissionResult> {
+  const current = await Camera.getCameraPermissionsAsync();
+  if (current.status === "granted") return GRANTED;
+
+  // Only a definite "won't ask again" is terminal.
+  if (current.canAskAgain === false) {
+    return blockedResult("Camera access");
   }
-  if (alreadyAsked("camera")) return false;
-  markAsked("camera");
 
-  const { status } = await Camera.requestCameraPermissionsAsync();
-  return status === "granted";
+  return serialize(async () => {
+    // Re-read inside the lock: another dialog may have resolved this already.
+    const fresh = await Camera.getCameraPermissionsAsync();
+    if (fresh.status === "granted") return GRANTED;
+    if (fresh.canAskAgain === false) return blockedResult("Camera access");
+
+    const { status } = await Camera.requestCameraPermissionsAsync();
+    if (status === "granted") return GRANTED;
+    return deniedResult("Camera");
+  });
 }
 
-/** Microphone permission. Silent when granted. */
-export async function ensureMicPermission(): Promise<boolean> {
-  const { status: existing, canAskAgain } = await getRecordingPermissionsAsync();
-  if (existing === "granted") return true;
+/** Microphone permission. See ensureCameraPermission for the contract. */
+export async function ensureMicPermission(
+  opts?: { interactive?: boolean }
+): Promise<PermissionResult> {
+  const current = await getRecordingPermissionsAsync();
+  if (current.status === "granted") return GRANTED;
 
-  if (existing === "denied" && canAskAgain === false) {
-    offerSettings(
-      "Microphone access is off",
-      "Simple Talk needs the microphone for calls. Enable it in system settings."
-    );
-    return false;
+  if (current.canAskAgain === false) {
+    return blockedResult("Microphone access");
   }
-  if (alreadyAsked("mic")) return false;
-  markAsked("mic");
 
-  const { status } = await requestRecordingPermissionsAsync();
-  return status === "granted";
+  return serialize(async () => {
+    const fresh = await getRecordingPermissionsAsync();
+    if (fresh.status === "granted") return GRANTED;
+    if (fresh.canAskAgain === false) return blockedResult("Microphone access");
+
+    const { status } = await requestRecordingPermissionsAsync();
+    if (status === "granted") return GRANTED;
+    return deniedResult("Microphone");
+  });
 }
 
 /**
@@ -78,113 +118,137 @@ export async function ensureMicPermission(): Promise<boolean> {
  * Firebase's requestPermission() is a no-op on Android, so the Android path goes
  * through PermissionsAndroid to reach the real system dialog.
  */
-export async function ensureNotificationPermission(): Promise<boolean> {
+export async function ensureNotificationPermission(): Promise<PermissionResult> {
   try {
     if (Platform.OS === "android") {
       const perm = PermissionsAndroid.PERMISSIONS?.POST_NOTIFICATIONS;
       // Pre-Android-13 has no runtime notification permission at all.
-      if (!perm) return true;
+      if (!perm) return GRANTED;
 
-      const granted = await PermissionsAndroid.check(perm);
-      if (granted) return true;
+      if (await PermissionsAndroid.check(perm)) return GRANTED;
 
-      if (alreadyAsked("notifications")) return false;
-      markAsked("notifications");
-
-      const result = await PermissionsAndroid.request(perm);
-      if (result === PermissionsAndroid.RESULTS.GRANTED) return true;
-      if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
-        offerSettings(
-          "Notifications are off",
-          "You will not get incoming calls while the app is closed. Enable notifications in system settings."
-        );
-      }
-      return false;
+      return await serialize(async () => {
+        if (await PermissionsAndroid.check(perm)) return GRANTED;
+        const result = await PermissionsAndroid.request(perm);
+        if (result === PermissionsAndroid.RESULTS.GRANTED) return GRANTED;
+        if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+          return blockedResult("Notifications");
+        }
+        return deniedResult("Notification");
+      });
     }
 
     const { NativeModules } = require("react-native");
-    if (!NativeModules?.RNFBAppModule) return true;
+    if (!NativeModules?.RNFBAppModule) return GRANTED;
     const messagingModule = require("@react-native-firebase/messaging");
     const messaging = messagingModule.default || messagingModule;
     const AuthStatus = messaging.AuthorizationStatus;
 
     const auth = await messaging().hasPermission();
-    if (auth === AuthStatus.AUTHORIZED || auth === AuthStatus.PROVISIONAL) return true;
+    if (auth === AuthStatus.AUTHORIZED || auth === AuthStatus.PROVISIONAL) return GRANTED;
 
-    if (alreadyAsked("notifications")) return false;
-    markAsked("notifications");
-    const status = await messaging().requestPermission();
-    return status === AuthStatus.AUTHORIZED || status === AuthStatus.PROVISIONAL;
+    return await serialize(async () => {
+      const status = await messaging().requestPermission();
+      if (status === AuthStatus.AUTHORIZED || status === AuthStatus.PROVISIONAL) {
+        return GRANTED;
+      }
+      return deniedResult("Notification");
+    });
   } catch (e) {
     console.warn("[permissions] notification request failed", e);
-    return true;
+    // Do not block the app on an unexpected platform error.
+    return GRANTED;
   }
 }
 
 /**
  * Android phone-account access for CallKeep.
  *
- * This is NOT a normal runtime permission -- it is a Telecom phone account,
- * granted through a system dialog that only `registerPhoneAccount` can trigger.
- * Sending the user to Settings (the previous behaviour) was wrong: there is no
- * toggle there to flip, which is why it looked like it was doing nothing.
- *
- * Returns true when the account exists afterwards.
+ * Not a runtime permission: a Telecom phone account can only be granted through
+ * the system dialog that `registerPhoneAccount` raises. There is no Settings
+ * toggle for it.
  */
-export async function ensurePhoneAccount(): Promise<boolean> {
-  if (Platform.OS !== "android") return true;
+export async function ensurePhoneAccount(): Promise<PermissionResult> {
+  if (Platform.OS !== "android") return GRANTED;
   try {
     const { ensurePhoneAccount: ensure } = require("./CallKeepService");
-    return await ensure();
+    const ok = await ensure();
+    return ok
+      ? GRANTED
+      : {
+          granted: false,
+          reason: "denied",
+          message:
+            "Call access was not granted, so incoming calls cannot take over your screen.",
+        };
   } catch (e) {
     console.warn("[permissions] phone account check failed", e);
-    return false;
+    return { granted: false, reason: "unavailable" };
   }
 }
 
 /**
- * Camera, microphone, notifications and phone-account access in one pass.
+ * Everything needed to place or receive a call.
  *
- * Called once per session after login. Every branch is a no-op when the
- * permission is already held, so this never nags.
+ * `interactive` is true when a user action triggered this, which makes failures
+ * surface to them instead of returning silently.
  */
-export async function ensureAllPermissions(): Promise<{
-  mic: boolean;
-  camera: boolean;
-  notifications: boolean;
-  phoneAccount: boolean;
-}> {
-  const [mic, camera, notifications] = await Promise.all([
-    ensureMicPermission(),
-    ensureCameraPermission(),
-    ensureNotificationPermission(),
-  ]);
-  // Last, so its system dialog is not competing with the others.
-  const phoneAccount = await ensurePhoneAccount();
-  return { mic, camera, notifications, phoneAccount };
-}
+export async function ensureCallPermissions(
+  needCamera: boolean,
+  opts?: { interactive?: boolean }
+): Promise<PermissionResult> {
+  const mic = await ensureMicPermission(opts);
+  if (!mic.granted) return mic;
 
-/** Just the permissions needed to place or receive a call. */
-export async function ensureCallPermissions(needCamera: boolean): Promise<boolean> {
-  const mic = await ensureMicPermission();
-  if (!mic) return false;
   if (needCamera) {
-    const cam = await ensureCameraPermission();
-    if (!cam) return false;
+    const cam = await ensureCameraPermission(opts);
+    if (!cam.granted) return cam;
   }
+
+  // Never block a call on notifications, but do ask.
   await ensureNotificationPermission();
-  return true;
+  return GRANTED;
 }
 
-export async function ensureVerificationPermissions(): Promise<boolean> {
-  return ensureCameraPermission();
+/** Camera, mic, notifications and the phone account, one after another. */
+export async function ensureAllPermissions(): Promise<void> {
+  // Sequential on purpose: Android shows one system dialog at a time, so a
+  // Promise.all here causes some requests to resolve as denied without ever
+  // being displayed.
+  const results = [
+    await ensureMicPermission(),
+    await ensureCameraPermission(),
+    await ensureNotificationPermission(),
+    await ensurePhoneAccount(),
+  ];
+  const blocked = results.filter((r) => r.reason === "blocked");
+  if (blocked.length) {
+    Alert.alert(
+      "Some access is off",
+      blocked.map((r) => r.message).join("\n\n"),
+      [
+        { text: "Later", style: "cancel" },
+        { text: "Open settings", onPress: () => Linking.openSettings() },
+      ]
+    );
+  }
 }
 
-function offerSettings(title: string, message: string) {
-  Alert.alert(title, message, [
-    { text: "Not now", style: "cancel" },
-    { text: "Open settings", onPress: () => Linking.openSettings() },
-  ]);
+export async function ensureVerificationPermissions(): Promise<PermissionResult> {
+  return ensureCameraPermission({ interactive: true });
+}
+
+/** Show an actionable alert for a failed permission check. */
+export function explainPermissionFailure(result: PermissionResult): void {
+  if (result.granted) return;
+  if (result.reason === "blocked") {
+    Alert.alert("Permission needed", result.message || "Enable it in system settings.", [
+      { text: "Not now", style: "cancel" },
+      { text: "Open settings", onPress: () => Linking.openSettings() },
+    ]);
+    return;
+  }
+  Alert.alert("Permission needed", result.message || "Please allow access to continue.");
 }
 
 export function permissionPlatformHint(): string {

@@ -26,7 +26,7 @@ import {
   isAgoraAvailable,
   RtcSurfaceView,
 } from "../src/services/agora";
-import { ensureCallPermissions } from "../src/services/permissions";
+import { ensureCallPermissions, explainPermissionFailure } from "../src/services/permissions";
 import {
   startCallForegroundService,
   stopCallForegroundService,
@@ -176,8 +176,13 @@ export default function CallScreen() {
   };
 
   const joinMedia = async (appId: string, token: string, channel: string, uid?: number) => {
-    const ok = await ensureCallPermissions(callType === "VIDEO");
-    if (!ok) return false;
+    // Non-interactive: by this point the user has already agreed to the call, so
+    // a permission prompt here would be a surprise mid-handshake. Fail loudly.
+    const perm = await ensureCallPermissions(callType === "VIDEO");
+    if (!perm.granted) {
+      explainPermissionFailure(perm);
+      return false;
+    }
     const engine = await createAndJoinEngine({
       appId: appId || process.env.EXPO_PUBLIC_AGORA_APP_ID || "",
       token,

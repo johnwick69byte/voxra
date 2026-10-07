@@ -28,8 +28,8 @@ export async function registerDevicePushToken(opts?: {
   }
 
   if (shouldRequest) {
-    const granted = await ensureNotificationPermission();
-    if (!granted) {
+    const result = await ensureNotificationPermission();
+    if (!result.granted) {
       // Registering anyway would create a token that can never display
       // anything. Skip, and retry on the next app start.
       console.warn("[push] notification permission not granted - skipping token registration");

@@ -53,28 +53,25 @@ class TestAgoraUid:
 # ── Ring push payload ────────────────────────────────────────────────────────
 
 class TestRingPush:
-    """The ring must be a notification message so a killed app still receives it."""
+    """The ring must be a data-only message so a killed app still receives it."""
 
-    def test_call_push_is_not_data_only(self):
-        """data_only=True is undeliverable to a force-stopped Android app."""
+    def test_ring_is_data_only_with_high_importance_channel(self):
+        """Ring must be sent as data-only message so it wakes headless JS task.
+
+        A notification message (data_only=False) is NOT delivered to a force-stopped
+        app. The headless JS task displays the call notification with fullScreenIntent
+        via Notifee.
+        """
         import inspect
 
         from app.services import call_service
 
         src = inspect.getsource(call_service.initiate_call)
-        assert "data_only=False" in src, (
-            "incoming calls must be sent as notification messages, not data-only"
-        )
-        assert "data_only=True" not in src
-
-    def test_ring_uses_high_importance_channel_and_full_screen(self):
-        import inspect
-
-        from app.services import call_service
-
-        src = inspect.getsource(call_service.initiate_call)
+        assert "data_only=True" in src
+        assert "data_only=False" not in src
         assert 'channel_id="incoming_calls_v1"' in src
-        assert "full_screen=True" in src
+        # full_screen=True is no longer used; Notifee handles fullScreenIntent in handler
+        assert "full_screen=True" not in src
 
     def test_failed_push_reports_failure_not_success(self, monkeypatch):
         """A misconfigured server must not look healthy in the metrics."""

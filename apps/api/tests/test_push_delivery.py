@@ -149,15 +149,17 @@ class TestSignupPhotoRemoved:
 # ── Incoming call when app is closed ─────────────────────────────────────────
 
 class TestKilledAppCall:
-    def test_ring_is_a_notification_message(self):
-        """data-only messages are undeliverable to a force-stopped app."""
+    def test_ring_is_data_only_with_fullscreen_intent(self):
+        """Ring must be a data-only message; Notifee handles fullScreenIntent."""
         import inspect
 
         from app.services import call_service
 
         src = inspect.getsource(call_service.initiate_call)
-        assert "data_only=False" in src
-        assert "full_screen=True" in src
+        assert "data_only=True" in src
+        assert "data_only=False" not in src
+        # full_screen=True is no longer used; Notifee handles fullScreenIntent
+        assert "full_screen=True" not in src
 
     def test_background_handler_persists_pending_call(self):
         """The headless task is a separate JS context; state must be persisted."""

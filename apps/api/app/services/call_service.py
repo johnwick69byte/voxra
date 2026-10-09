@@ -181,10 +181,10 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
         logger.exception("call insert failed for %s", call_id)
         raise HTTPException(500, "Could not start the call, please try again")
 
-    # Ring via a *notification* message. A data-only message is not delivered
-    # once Android has killed/swiped the app, which is why incoming calls never
-    # appeared. A notification message is rendered by the system and can take
-    # over the screen (full-screen intent) like a normal phone call.
+    # Ring via a *data-only* message with high priority. This wakes the
+    # headless JS task even when the app is killed/swiped. The background
+    # handler (index.js) will display a Notifee notification with a
+    # fullScreenIntent that launches the full-screen call UI.
     push_doc = await db.push_tokens.find_one({"user_id": receiver_id}, {"_id": 0})
     if push_doc and push_doc.get("device_push_token"):
         remaining = settings.call_ring_timeout_seconds
@@ -201,13 +201,11 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
                 "call_type": call_type,
                 "channel_name": channel_name,
                 "decline_token": decline_token,
-                # Lets the native side open the call screen directly.
                 "route": "incoming-call",
             },
-            data_only=False,
+            data_only=True,
             ttl_seconds=remaining,
             channel_id="incoming_calls_v1",
-            full_screen=True,
             loop_sound=True,
             category="call",
         )

@@ -162,9 +162,6 @@ export default function WalletScreen() {
         <Animated.View entering={FadeInDown.delay(80).duration(380)} style={styles.earnCard}>
           <AppText style={styles.earnLabel}>Creator earnings</AppText>
           <AppText style={styles.earnBal}>₹{earnings.toFixed(2)}</AppText>
-          <AppText style={styles.commissionHint}>
-            85% of calls & gifts after the 15% platform fee
-          </AppText>
           <PrimaryButton
             label="Withdraw to bank / UPI"
             onPress={() => router.push("/withdraw")}

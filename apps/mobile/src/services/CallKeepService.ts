@@ -12,6 +12,7 @@ import { Platform } from "react-native";
 let CallKeep: any = null;
 let ready = false;
 let setupPromise: Promise<void> | null = null;
+let listenersBound = false;
 
 try {
   CallKeep = require("react-native-callkeep").default;
@@ -41,8 +42,6 @@ export async function setupCallKeep() {
             "Simple Talk needs phone account access to show incoming calls on your lock screen and over other apps.",
           cancelButton: "Cancel",
           okButton: "Allow",
-          // Requested alongside the phone account so the Telecom connection can
-          // be created on first run.
           additionalPermissions: [
             "android.permission.READ_PHONE_STATE",
             "android.permission.CALL_PHONE",
@@ -69,6 +68,43 @@ export async function setupCallKeep() {
     }
   })();
   return setupPromise;
+}
+
+/**
+ * Bind CallKeep event listeners for answer/end call actions.
+ * Must be called after setupCallKeep() completes.
+ */
+export function bindCallKeepListeners() {
+  if (!CallKeep || listenersBound) return;
+  listenersBound = true;
+  const { emitCallRoute } = require("./callRouter");
+
+  const safeOn = (event: string, handler: (payload: any) => void) => {
+    try {
+      if (typeof CallKeep.addEventListener === "function") {
+        CallKeep.addEventListener(event, handler);
+      } else if (typeof CallKeep.on === "function") {
+        CallKeep.on(event, handler);
+      }
+    } catch (e) {
+      console.warn(`[CallKeep] could not bind ${event}`, e);
+    }
+  };
+
+  // User answered from the native/lock-screen call UI.
+  safeOn("answerCall", ({ callUUID }: any) => {
+    emitCallRoute({ call_id: String(callUUID || ""), action: "accept", type: "incoming_call" });
+  });
+
+  // User rejected/hung up before answering.
+  safeOn("endCall", ({ callUUID }: any) => {
+    emitCallRoute({ call_id: String(callUUID || ""), action: "decline", type: "incoming_call" });
+  });
+
+  // The OS ended the call (e.g. another call took over).
+  safeOn("didPerformEndCallAction", ({ callUUID }: any) => {
+    emitCallRoute({ call_id: String(callUUID || ""), action: "decline", type: "incoming_call" });
+  });
 }
 
 /** True when Android will actually accept displayIncomingCall(). */
@@ -104,6 +140,16 @@ export async function ensurePhoneAccount(): Promise<boolean> {
           "Simple Talk needs phone account access to show incoming calls on your lock screen and over other apps.",
         cancelButton: "Cancel",
         okButton: "Allow",
+        additionalPermissions: [
+          "android.permission.READ_PHONE_STATE",
+          "android.permission.CALL_PHONE",
+          "android.permission.MANAGE_OWN_CALLS",
+        ],
+        foregroundService: {
+          channelId: "ongoing_calls",
+          channelName: "Ongoing Calls",
+          notificationTitle: "Simple Talk call in progress",
+        },
       },
     });
   } catch (e) {
@@ -145,45 +191,4 @@ export async function endCallKeepCall(callId: string) {
   } catch {
     /* ignore */
   }
-}
-
-let listenersBound = false;
-
-/**
- * Route native call-UI actions (answer / end from the lock screen) into the app.
- *
- * Without this the CallKeep notification can be answered but nothing happens:
- * the JS side never hears about it and the Agora room is never joined.
- */
-export function bindCallKeepListeners() {
-  if (!CallKeep || listenersBound) return;
-  listenersBound = true;
-  const { emitCallRoute } = require("./callRouter");
-
-  const safeOn = (event: string, handler: (payload: any) => void) => {
-    try {
-      if (typeof CallKeep.addEventListener === "function") {
-        CallKeep.addEventListener(event, handler);
-      } else if (typeof CallKeep.on === "function") {
-        CallKeep.on(event, handler);
-      }
-    } catch (e) {
-      console.warn(`[CallKeep] could not bind ${event}`, e);
-    }
-  };
-
-  // User answered from the native/lock-screen call UI.
-  safeOn("answerCall", ({ callUUID }: any) => {
-    emitCallRoute({ call_id: String(callUUID || ""), action: "accept", type: "incoming_call" });
-  });
-
-  // User rejected/hung up before answering.
-  safeOn("endCall", ({ callUUID }: any) => {
-    emitCallRoute({ call_id: String(callUUID || ""), action: "decline", type: "incoming_call" });
-  });
-
-  // The OS ended the call (e.g. another call took over).
-  safeOn("didPerformEndCallAction", ({ callUUID }: any) => {
-    emitCallRoute({ call_id: String(callUUID || ""), action: "decline", type: "incoming_call" });
-  });
 }

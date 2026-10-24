@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   Modal,
+  Switch,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -229,22 +230,27 @@ export default function BrowseScreen() {
       {isCreator ? (
         <View style={styles.creatorBanner}>
           <View style={{ flex: 1 }}>
-            <AppText variant="caption">Creator earnings (after ~15% fee)</AppText>
+            
             <AppText style={styles.earnSmall}>₹{earnings.toFixed(0)}</AppText>
           </View>
-          <PrimaryButton
-            label={dnd ? "DND on" : "Available"}
-            onPress={async () => {
-              const res = await creatorsAPI.toggleDnd();
-              setDnd(res.data.is_dnd);
-              Toast.show({ type: "success", text1: res.data.is_dnd ? "DND on" : "You're available" });
-            }}
-            style={{
-              minWidth: 116,
-              height: 44,
-              backgroundColor: dnd ? theme.colors.dnd : theme.colors.brand,
-            }}
-          />
+          <View style={styles.dndToggle}>
+            <AppText style={styles.dndLabel}>
+              {dnd ? "Do Not Disturb" : "Available for calls"}
+            </AppText>
+            <Switch
+              value={dnd}
+              onValueChange={async (value) => {
+                const res = await creatorsAPI.toggleDnd();
+                setDnd(res.data.is_dnd);
+                Toast.show({
+                  type: "success",
+                  text1: res.data.is_dnd ? "Do Not Disturb enabled" : "You're available for calls",
+                });
+              }}
+              trackColor={{ false: theme.colors.brand, true: theme.colors.dnd }}
+              thumbColor={theme.colors.onBrand}
+            />
+          </View>
         </View>
       ) : null}
 
@@ -601,4 +607,15 @@ const styles = StyleSheet.create({
   },
   chipOn: { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand },
   sheetActions: { flexDirection: "row", gap: 10, marginTop: 26 },
+  dndToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  dndLabel: {
+    fontFamily: theme.font.bodySemi,
+    fontSize: 16,
+    color: theme.colors.text,
+  },
 });

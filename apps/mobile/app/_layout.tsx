@@ -37,14 +37,14 @@ export default function RootLayout() {
 
   useEffect(() => {
     hydrate();
-    // Bind CallKeep's answer/end listeners before setup so lock-screen actions
-    // reach the app.
-    try {
-      require("../src/services/CallKeepService").bindCallKeepListeners();
-    } catch {
-      /* native module unavailable */
-    }
-    setupCallKeep();
+    // Setup CallKeep first, then bind listeners so they're ready for incoming calls
+    setupCallKeep().then(() => {
+      try {
+        require("../src/services/CallKeepService").bindCallKeepListeners();
+      } catch {
+        /* native module unavailable */
+      }
+    });
     // Must exist before the first FCM push, otherwise Android falls back to a
     // silent channel with the launcher icon.
     ensureNotificationChannels();

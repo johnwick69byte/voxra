@@ -6,6 +6,7 @@ import {
   Animated,
   Vibration,
   Platform,
+  BackHandler,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -52,6 +53,15 @@ export default function IncomingCallScreen() {
     setIncomingOpen(null);
     router.back();
   }, [router, setIncoming, setIncomingOpen]);
+
+  // Handle Android back button
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      dismiss();
+      return true; // Prevent default back behavior
+    });
+    return () => subscription.remove();
+  }, [dismiss]);
 
   useEffect(() => {
     Animated.loop(

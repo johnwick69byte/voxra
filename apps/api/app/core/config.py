@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     upstash_redis_rest_token: str = ""
 
     jwt_secret: str = "dev-secret-change-me"
-    jwt_expire_days: int = 30
+    jwt_expire_days: int = 45
     admin_jwt_secret: str = "dev-admin-secret-change-me"
 
     cors_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost:8081"

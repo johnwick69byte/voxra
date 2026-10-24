@@ -9,6 +9,7 @@ import {
   AppState,
   Pressable,
   Modal,
+  TextInput,
 } from "react-native";
 import { useLocalSearchParams, useRouter, useNavigation } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -35,6 +36,7 @@ import { endCallKeepCall } from "../src/services/CallKeepService";
 import { playRingtone, stopRingtone } from "../src/services/ringtone";
 import { useSecureCallScreen } from "../src/hooks/useSecureCallScreen";
 import { GiftBurst, GiftFx } from "../src/components/GiftBurst";
+import { PrimaryButton } from "../src/components/PrimaryButton";
 
 const DISCONNECT_GRACE_MS = 20000;
 // How long the caller's UI keeps ringing before giving up. The server uses
@@ -90,14 +92,19 @@ export default function CallScreen() {
   const [remoteUid, setRemoteUid] = useState<number | null>(null);
   const [mediaReady, setMediaReady] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
-  const [giftOpen, setGiftOpen] = useState(false);
-  const [giftsTotal, setGiftsTotal] = useState(0);
-  const [earningsSession, setEarningsSession] = useState(0);
-  const [earningsBalance, setEarningsBalance] = useState<number | null>(null);
   const [giftFx, setGiftFx] = useState<GiftFx[]>([]);
   const [isLive, setIsLive] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [speaker, setSpeaker] = useState(false);
+  // Gift state
+  const [giftOpen, setGiftOpen] = useState(false);
+  const [selectedGiftAmount, setSelectedGiftAmount] = useState<number | null>(null);
+  const [customAmount, setCustomAmount] = useState("");
+  const [customAmountError, setCustomAmountError] = useState(false);
+  const [giftSending, setGiftSending] = useState(false);
+  const [giftsTotal, setGiftsTotal] = useState(0);
+  const [earningsSession, setEarningsSession] = useState(0);
+  const [earningsBalance, setEarningsBalance] = useState<number | null>(null);
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uidUsedRef = useRef<number | undefined>(undefined);
@@ -294,17 +301,21 @@ export default function CallScreen() {
     setGiftFx((prev) => [...prev.slice(-4), { id, amount, direction }]);
   };
 
-  const sendGift = async (amount: number) => {
+  const sendGiftApi = async (amount: number) => {
     if (!isLive) {
       Toast.show({ type: "info", text1: "Gifts available during live call" });
       return;
     }
+    setGiftSending(true);
     try {
       const res = await callsAPI.gift(callId, amount);
       if (typeof res.data?.balance === "number") {
-        setBilling(res.data.balance, totalBilled);
+        setBilling(res.data.balance, res.data?.total_billed ?? 0);
       }
       setGiftOpen(false);
+      setSelectedGiftAmount(null);
+      setCustomAmount("");
+      setCustomAmountError(false);
       Toast.show({
         type: "success",
         text1: `Gifted ₹${amount}`,
@@ -325,7 +336,19 @@ export default function CallScreen() {
           text2: e?.response?.data?.detail || e.message,
         });
       }
+    } finally {
+      setGiftSending(false);
     }
+  };
+
+  const handleSendGift = () => {
+    const amount = selectedGiftAmount || (customAmount ? parseInt(customAmount, 10) : 0);
+    if (!amount || amount < 1) {
+      setCustomAmountError(true);
+      return;
+    }
+    setCustomAmountError(false);
+    sendGiftApi(amount);
   };
 
   useEffect(() => {
@@ -792,15 +815,37 @@ export default function CallScreen() {
         <Pressable style={styles.sheetBackdrop} onPress={() => setGiftOpen(false)}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>Send a gift</Text>
-            <Text style={styles.sheetHint}>Creator receives ~85% after platform fee</Text>
+            <Text style={styles.sheetHint}>Select an amount or enter a custom amount</Text>
             <View style={styles.giftRow}>
               {GIFT_AMOUNTS.map((a, i) => (
-                <Pressable key={a} style={styles.giftChip} onPress={() => sendGift(a)}>
+                <Pressable key={a} style={[styles.giftChip, selectedGiftAmount === a && styles.giftChipSelected]} onPress={() => setSelectedGiftAmount(a)}>
                   <Text style={styles.giftIcon}>{GIFT_ICONS[i] || "🎁"}</Text>
                   <Text style={styles.giftAmt}>₹{a}</Text>
                 </Pressable>
               ))}
             </View>
+            <View style={styles.customAmountContainer}>
+              <TextInput
+                style={styles.customAmountInput}
+                placeholder="Custom amount"
+                keyboardType="numeric"
+                value={customAmount}
+                onChangeText={setCustomAmount}
+                placeholderTextColor={theme.colors.textMuted}
+              />
+              {customAmountError && (
+                <Text style={styles.customAmountError}>
+                  Please enter a valid amount (minimum ₹1)
+                </Text>
+              )}
+            </View>
+            <PrimaryButton
+              label={selectedGiftAmount || customAmount ? `Send ₹${selectedGiftAmount || customAmount}` : "Select an amount"}
+              onPress={handleSendGift}
+              loading={giftSending}
+              disabled={!(selectedGiftAmount || customAmount) || giftSending}
+              style={{ marginTop: 16 }}
+            />
           </View>
         </Pressable>
       </Modal>
@@ -929,4 +974,28 @@ const styles = StyleSheet.create({
   },
   giftIcon: { fontSize: 20, marginBottom: 4 },
   giftAmt: { color: "#fff", fontFamily: theme.font.bodyBold, fontSize: 16 },
+  giftChipSelected: {
+    backgroundColor: theme.colors.brandLight,
+    borderColor: theme.colors.brand,
+  },
+  customAmountContainer: {
+    marginTop: 16,
+  },
+  customAmountInput: {
+    backgroundColor: theme.colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontFamily: theme.font.body,
+    fontSize: 16,
+    color: theme.colors.text,
+  },
+  customAmountError: {
+    color: theme.colors.error,
+    fontFamily: theme.font.body,
+    fontSize: 12,
+    marginTop: 4,
+  },
 });

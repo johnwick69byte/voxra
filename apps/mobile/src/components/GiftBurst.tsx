@@ -63,7 +63,7 @@ function GiftBurst({
     opacity.value = withSequence(
       withTiming(1, { duration: 150 }),
       withDelay(
-        1050,
+        2500,
         withTiming(0, { duration: 300 }, (finished) => {
           if (finished) runOnJS(onDone)(gift.id);
         })
@@ -132,10 +132,7 @@ function GiftBurst({
           {/* The 85% credit only applies to the receiver; showing it on a sent
               gift would tell the sender they earned money. */}
           {gift.direction === "received" ? (
-            <Text style={styles.subText}>
-              You earned {"\u20B9"}
-              {Math.round(gift.amount * 0.85)}
-            </Text>
+            <Text style={styles.subText}>Gift received</Text>
           ) : (
             <Text style={styles.subText}>Gift delivered</Text>
           )}

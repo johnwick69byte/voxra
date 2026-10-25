@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     commission_rate: float = 0.15
     referral_bonus_referrer: float = 25.0
     referral_bonus_referee: float = 20.0
+    # Model Referral Settings
+    model_referral_bonus_percentage: float = 5.0
+    model_referral_min_withdrawal: float = 100.0
+    model_referral_code_prefix: str = "MDL"
+    model_referral_code_length: int = 6
     call_ring_timeout_seconds: int = 45
     min_audio_rate: float = 3.0
     min_video_rate: float = 7.0

@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.core.database import connect_db, close_db
 from app.core.database_redis import connect_redis, close_redis
 from app.core.socket import sio
-from app.routers import auth, creators, calls, wallet, admin, misc, earnings
+from app.routers import auth, creators, calls, wallet, admin, misc, earnings, model_referral
 from app.services import call_service
 
 logging.basicConfig(level=logging.INFO)
@@ -81,6 +81,7 @@ api_router.include_router(wallet.router)
 api_router.include_router(earnings.router)
 api_router.include_router(admin.router)
 api_router.include_router(misc.router)
+api_router.include_router(model_referral.router)
 app.include_router(api_router)
 
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)

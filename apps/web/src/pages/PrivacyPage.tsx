@@ -91,7 +91,7 @@ export default function PrivacyPage() {
       <h3>5.1. Payment settlement</h3>
       <ul>
         <li><strong>Role.</strong> An external payment gateway collects wallet recharges. Creator withdrawals are paid out to the UPI ID on the account after review.</li>
-        <li><strong>Purpose.</strong> The gateway is used so the user’s prepayment and the creator’s earnings can be settled separately. The platform keeps a 15% facilitation fee. The creator receives about 85%.</li>
+        <li><strong>Purpose.</strong> The gateway is used so the user's prepayment and the creator's earnings can be settled separately. The platform keeps a facilitation fee. The creator receives earnings after the fee.</li>
         <li><strong>Security.</strong> We do not store card credentials or UPI PINs. Payment status comes back to us as an order identifier and a result.</li>
       </ul>
       <h3>5.2. Live interaction — Agora</h3>

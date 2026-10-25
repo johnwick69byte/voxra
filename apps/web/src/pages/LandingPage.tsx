@@ -52,7 +52,7 @@ const services = [
   },
   {
     title: "Gifts on top of time",
-    body: "During a live call a fan can send a gift. It is a one-time thank-you, separate from the per-minute rate, and you keep about 85% of it.",
+    body: "During a live call a fan can send a gift. It is a one-time thank-you, separate from the per-minute rate.",
   },
 ];
 
@@ -71,8 +71,7 @@ export default function LandingPage() {
           <h1>Talk now. Get paid for the minute you are actually on the call.</h1>
           <p className="lede">
             Simple Talk is instant audio and video between fans and creators. If someone is available,
-            you call them. You do not send a message and wait. Creators set the rate, keep about 85%
-            after a 15% platform fee, and withdraw earnings to UPI.
+            you call them. You do not send a message and wait. Creators set the rate and withdraw earnings to UPI.
           </p>
           <div className="hero-actions">
             <a className="btn" href="#how">
@@ -89,11 +88,7 @@ export default function LandingPage() {
           </div>
           <p className="phone-name">Ananya Rao</p>
           <p className="phone-meta">Audio ₹8/min · Video ₹18/min</p>
-          <div className="phone-row">
-            <span>You receive</span>
-            <strong>~85%</strong>
-          </div>
-          <div className="phone-call">Incoming video call</div>
+          <div className="phone-call">Video call meets</div>
         </div>
       </section>
 
@@ -226,7 +221,7 @@ export default function LandingPage() {
                 <td>Your share</td>
                 <td>—</td>
                 <td>Varies, and agencies take a cut</td>
-                <td>About 85% after a 15% platform fee</td>
+                <td>Creator keeps earnings after platform fee</td>
               </tr>
               <tr>
                 <td>Your hours</td>
@@ -254,22 +249,21 @@ export default function LandingPage() {
           <article className="card">
             <p className="step">Example · audio</p>
             <h3>90 minutes at ₹8/min</h3>
-            <p>The fan pays ₹720. You receive about ₹612. The platform keeps ₹108.</p>
+            <p>The fan pays ₹720. Creator earnings are credited after the platform fee.</p>
           </article>
           <article className="card">
             <p className="step">Example · video</p>
             <h3>60 minutes at ₹18/min</h3>
-            <p>The fan pays ₹1,080. You receive about ₹918. The platform keeps ₹162.</p>
+            <p>The fan pays ₹1,080. Creator earnings are credited after the platform fee.</p>
           </article>
           <article className="card">
             <p className="step">Example · gifts</p>
             <h3>₹300 in gifts on a live call</h3>
-            <p>The fan’s spendable balance drops by ₹300. You receive about ₹255, on top of the minutes.</p>
+            <p>The fan's spendable balance drops by ₹300. Creator receives the gift amount after the platform fee.</p>
           </article>
         </div>
         <p className="note">
-          Figures use the current 15% commission. A creator’s spendable balance and earnings balance are
-          separate. Fans pay from spendable credit. You withdraw from earnings.
+          A creator's spendable balance and earnings balance are separate. Fans pay from spendable credit. You withdraw from earnings.
         </p>
       </section>
 

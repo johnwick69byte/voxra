@@ -67,7 +67,7 @@ export default function TermsPage() {
         <li><strong>Channels.</strong> Audio or video is available only while the call is live.</li>
         <li><strong>Settlement.</strong> The fee follows the per-minute rate published by the independent creator. Billing starts when the call is live. A declined, cancelled, or missed ring is not a completed paid session.</li>
         <li><strong>Gifts.</strong> A gift during a live call is a gratuity for that session. It is non-refundable once delivered, and it is settled net of the facilitation fee.</li>
-        <li><strong>Availability.</strong> Creators appear as available, on a call, do not disturb, or offline. Only one incoming ring is placed at a time. Simple Talk does not book a future appointment, send a reminder, or keep a wait-list.</li>
+        <li><strong>Availability.</strong> Creators appear as available, on a call, do not disturb, or offline. Only one meet ring is placed at a time. Simple Talk does not book a future appointment, send a reminder, or keep a wait-list.</li>
       </ul>
 
       <h2>6. Prepaid balance</h2>
@@ -84,7 +84,7 @@ export default function TermsPage() {
       <ul>
         <li><strong>Gateway.</strong> Recharges are collected by an external payment gateway. We receive the order status, not your card or UPI PIN.</li>
         <li><strong>Separate balances.</strong> The user’s spendable credit and the creator’s earnings are settled separately, which is how this marketplace pays an independent provider.</li>
-        <li><strong>Facilitation fee.</strong> Simple Talk retains 15% of call charges and gifts for connectivity and settlement. The creator receives about 85%.</li>
+        <li><strong>Facilitation fee.</strong> Simple Talk retains a percentage of call charges and gifts for connectivity and settlement. The creator receives earnings after the fee.</li>
       </ul>
       <h3>7.2. Session billing</h3>
       <ul>

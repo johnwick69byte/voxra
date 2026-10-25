@@ -13,6 +13,8 @@ export function SiteChrome({ children }: { children: ReactNode }) {
           <a href="/#fans">For fans</a>
           <a href="/#earnings">Earnings</a>
           <a href="/#services">Services</a>
+          <NavLink to="/contact">Contact</NavLink>
+          <NavLink to="/cancellation-refund-policy">Refund Policy</NavLink>
           <NavLink to="/privacy">Privacy</NavLink>
           <NavLink to="/terms">Terms</NavLink>
           <NavLink to="/delete-account">Delete account</NavLink>
@@ -25,6 +27,8 @@ export function SiteChrome({ children }: { children: ReactNode }) {
           <p>Instant audio and video between fans and creators.</p>
         </div>
         <div className="footer-links">
+          <Link to="/contact">Contact</Link>
+          <Link to="/cancellation-refund-policy">Cancellation & Refund Policy</Link>
           <Link to="/privacy">Privacy policy</Link>
           <Link to="/terms">Terms and conditions</Link>
           <Link to="/delete-account">Delete account</Link>

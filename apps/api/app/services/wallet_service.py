@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from pymongo.errors import DuplicateKeyError
+
 from app.core.config import get_settings
 from app.core.database import get_db
 
@@ -61,11 +63,16 @@ async def record_platform_commission(
     model_earnings: Optional[float] = None,
     minute: Optional[int] = None,
     metadata: Optional[dict] = None,
+    commission_id: Optional[str] = None,
+    gateway_commission: Optional[float] = None,
+    service_commission: Optional[float] = None,
 ) -> dict:
     """Append a document to the platform commission ledger.
 
     `minute` is the unique discriminator for per-minute CALL_COMMISSION rows;
     combined with `source_id` + `type` it makes settlement idempotent.
+    Pass `commission_id` for a deterministic idempotency key (used by recharge
+    settlement).
     """
     db = get_db()
     if minute is not None:
@@ -76,18 +83,28 @@ async def record_platform_commission(
         if existing:
             return existing
     doc = {
-        "commission_id": f"pcom_{uuid.uuid4().hex[:14]}",
+        "commission_id": commission_id or f"pcom_{uuid.uuid4().hex[:14]}",
         "type": commission_type,  # RECHARGE_COMMISSION | CALL_COMMISSION | GIFT_COMMISSION
         "amount": round(float(amount), 2),
         "user_id": user_id,
         "source_id": source_id,
         "gross_amount": round(float(gross_amount), 2) if gross_amount is not None else None,
         "model_earnings": round(float(model_earnings), 2) if model_earnings is not None else None,
+        "gateway_commission": round(float(gateway_commission), 2) if gateway_commission is not None else None,
+        "service_commission": round(float(service_commission), 2) if service_commission is not None else None,
         "minute": minute,
         "metadata": metadata or {},
         "created_at": datetime.now(timezone.utc),
     }
-    await db.platform_commissions.insert_one(doc)
+    try:
+        await db.platform_commissions.insert_one(doc)
+    except DuplicateKeyError:
+        existing = await db.platform_commissions.find_one(
+            {"commission_id": doc["commission_id"]}, {"_id": 0}
+        )
+        if existing:
+            return existing
+        raise
     return doc
 
 
@@ -96,19 +113,72 @@ async def add_platform_balance(amount: float) -> None:
         return
     db = get_db()
     now = datetime.now(timezone.utc)
-    await db.platform_wallet.update_one(
-        {"platform_id": "platform_001"},
+    update = {
+        "$inc": {"balance": round(float(amount), 2)},
+        "$set": {"updated_at": now},
+        "$setOnInsert": {
+            "platform_id": "platform_001",
+            "currency": "INR",
+            "created_at": now,
+        },
+    }
+    try:
+        await db.platform_wallet.update_one(
+            {"platform_id": "platform_001"}, update, upsert=True
+        )
+    except DuplicateKeyError:
+        # Two workers created the platform wallet at the same time. Retry the
+        # increment against the document that won; never drop the commission.
+        await db.platform_wallet.update_one({"platform_id": "platform_001"}, update)
+
+
+async def add_platform_balance_once(amount: float, order_id: str) -> bool:
+    """Idempotently add a recharge commission to the platform wallet.
+
+    Returns True when this call applied the credit, False when it was already
+    applied. The order id is stored in the same platform-wallet document as the
+    increment, so a retry after a crash can never add the commission twice.
+    """
+    if amount <= 0 or not order_id:
+        return False
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    try:
+        await db.platform_wallet.update_one(
+            {"platform_id": "platform_001"},
+            {
+                "$setOnInsert": {
+                    "platform_id": "platform_001",
+                    "balance": 0.0,
+                    "currency": "INR",
+                    "created_at": now,
+                }
+            },
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        # A concurrent worker inserted the platform wallet first.
+        pass
+    updated = await db.platform_wallet.find_one_and_update(
+        {
+            "platform_id": "platform_001",
+            "credited_recharge_order_ids": {"$ne": order_id},
+        },
         {
             "$inc": {"balance": round(float(amount), 2)},
+            "$push": {"credited_recharge_order_ids": order_id},
             "$set": {"updated_at": now},
-            "$setOnInsert": {
-                "platform_id": "platform_001",
-                "currency": "INR",
-                "created_at": now,
-            },
         },
-        upsert=True,
+        return_document=True,
     )
+    if updated:
+        return True
+    wallet = await db.platform_wallet.find_one(
+        {"platform_id": "platform_001"}, {"_id": 0}
+    )
+    if wallet and order_id in (wallet.get("credited_recharge_order_ids") or []):
+        return False
+    raise RuntimeError(f"Could not apply platform commission for recharge {order_id}")
 
 
 async def get_wallet(user_id: str) -> dict:
@@ -121,7 +191,13 @@ async def get_wallet(user_id: str) -> dict:
             "earnings_balance": 0.0,
             "updated_at": datetime.now(timezone.utc),
         }
-        await db.wallets.insert_one(wallet)
+        try:
+            await db.wallets.insert_one(wallet)
+        except DuplicateKeyError:
+            # A concurrent request created the wallet first.
+            wallet = await db.wallets.find_one({"user_id": user_id}, {"_id": 0})
+            if not wallet:
+                raise
     return wallet
 
 
@@ -140,28 +216,98 @@ async def atomic_debit(user_id: str, amount: float) -> Optional[dict]:
 
 async def credit_balance(user_id: str, amount: float) -> dict:
     db = get_db()
-    return await db.wallets.find_one_and_update(
-        {"user_id": user_id},
+    update = {
+        "$inc": {"balance": amount},
+        "$set": {"updated_at": datetime.now(timezone.utc)},
+    }
+    try:
+        return await db.wallets.find_one_and_update(
+            {"user_id": user_id},
+            update,
+            upsert=True,
+            return_document=True,
+        )
+    except DuplicateKeyError:
+        return await db.wallets.find_one_and_update(
+            {"user_id": user_id},
+            update,
+            return_document=True,
+        )
+
+
+async def credit_balance_once(
+    user_id: str, amount: float, order_id: str
+) -> tuple[bool, dict]:
+    """Credit spendable balance exactly once for a payment order.
+
+    The order id is added to the wallet in the *same* atomic MongoDB update as
+    the balance increment. If the process crashes after the write, a retry sees
+    the marker and does not increment again. Returns ``(applied, wallet)``.
+    """
+    db = get_db()
+    await get_wallet(user_id)
+    now = datetime.now(timezone.utc)
+    updated = await db.wallets.find_one_and_update(
         {
-            "$inc": {"balance": amount},
-            "$set": {"updated_at": datetime.now(timezone.utc)},
+            "user_id": user_id,
+            "credited_recharge_order_ids": {"$ne": order_id},
         },
-        upsert=True,
+        {
+            "$inc": {"balance": round(float(amount), 2)},
+            "$push": {"credited_recharge_order_ids": order_id},
+            "$set": {"updated_at": now},
+        },
         return_document=True,
     )
+    if updated:
+        return True, updated
+    wallet = await db.wallets.find_one({"user_id": user_id}, {"_id": 0})
+    if wallet and order_id in (wallet.get("credited_recharge_order_ids") or []):
+        return False, wallet
+
+    # The wallet was missing or a concurrent delete removed it before the
+    # guarded update. Recreate it and retry once. Never report "already
+    # credited" unless the marker is actually present.
+    await get_wallet(user_id)
+    updated = await db.wallets.find_one_and_update(
+        {
+            "user_id": user_id,
+            "credited_recharge_order_ids": {"$ne": order_id},
+        },
+        {
+            "$inc": {"balance": round(float(amount), 2)},
+            "$push": {"credited_recharge_order_ids": order_id},
+            "$set": {"updated_at": now},
+        },
+        return_document=True,
+    )
+    if updated:
+        return True, updated
+    wallet = await db.wallets.find_one({"user_id": user_id}, {"_id": 0})
+    if wallet and order_id in (wallet.get("credited_recharge_order_ids") or []):
+        return False, wallet
+    raise RuntimeError(f"Could not apply wallet credit for recharge {order_id}")
 
 
 async def credit_earnings(user_id: str, amount: float) -> dict:
     db = get_db()
-    return await db.wallets.find_one_and_update(
-        {"user_id": user_id},
-        {
-            "$inc": {"earnings_balance": amount},
-            "$set": {"updated_at": datetime.now(timezone.utc)},
-        },
-        upsert=True,
-        return_document=True,
-    )
+    update = {
+        "$inc": {"earnings_balance": amount},
+        "$set": {"updated_at": datetime.now(timezone.utc)},
+    }
+    try:
+        return await db.wallets.find_one_and_update(
+            {"user_id": user_id},
+            update,
+            upsert=True,
+            return_document=True,
+        )
+    except DuplicateKeyError:
+        return await db.wallets.find_one_and_update(
+            {"user_id": user_id},
+            update,
+            return_document=True,
+        )
 
 
 async def insert_transaction(

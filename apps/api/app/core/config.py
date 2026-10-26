@@ -41,14 +41,24 @@ class Settings(BaseSettings):
     trustope_user_token: str = ""
     trustope_redirect_url: str = "http://localhost:8000/api/wallet/recharge/return"
 
-    # Cashfree payment gateway
+    # KwikUPI payment gateway (live payments only; there is no sandbox)
+    kwikupi_base_url: str = "https://kwikupi.com/api"
+    kwikupi_api_key: str = ""
+    kwikupi_api_secret: str = ""
+    # Optional override. Falls back to backend_url + /api/wallet/recharge/return
+    kwikupi_return_url: str = ""
+
+    # Legacy Cashfree settings retained for compatibility; the recharge flow
+    # now uses KwikUPI exclusively.
     cashfree_app_id: str = ""
     cashfree_secret_key: str = ""
-    cashfree_environment: str = "sandbox"  # sandbox | production
-    cashfree_return_url: str = ""  # falls back to backend_url + /api/wallet/recharge/return
-    cashfree_notify_url: str = ""  # falls back to backend_url + /api/wallet/recharge/webhook
+    cashfree_environment: str = "production"
+    cashfree_return_url: str = ""
+    cashfree_notify_url: str = ""
 
     # Recharge economics: platform keeps 6% (3% gateway + 3% service), user is credited 94%
+    min_recharge_amount: float = 50.0
+    max_recharge_amount: float = 100000.0
     recharge_commission_rate: float = 0.06
     recharge_gateway_rate: float = 0.03
     recharge_service_rate: float = 0.03

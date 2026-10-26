@@ -41,7 +41,7 @@ npx expo run:android
 
 ## Production API env checklist
 See §5 of [BUILD_AND_RELEASE.md](./BUILD_AND_RELEASE.md) for the complete,
-current list (includes `CASHFREE_*` and `RECHARGE_*`).
+current list (includes `KWIKUPI_*` and `RECHARGE_*`).
 
 ## Device QA
 Follow [CALL_FLOW_TESTS.md](./CALL_FLOW_TESTS.md),

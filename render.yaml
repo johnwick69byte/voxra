@@ -43,6 +43,18 @@ services:
       # Set these in Render Dashboard → Environment (do not commit secrets):
       - key: BACKEND_URL
         sync: false
+      - key: KWIKUPI_BASE_URL
+        value: "https://kwikupi.com/api"
+      - key: KWIKUPI_API_KEY
+        sync: false
+      - key: KWIKUPI_API_SECRET
+        sync: false
+      - key: KWIKUPI_RETURN_URL
+        sync: false
+      - key: MIN_RECHARGE_AMOUNT
+        value: "50"
+      - key: MAX_RECHARGE_AMOUNT
+        value: "100000"
       - key: MONGODB_URI
         sync: false
       - key: REDIS_URL

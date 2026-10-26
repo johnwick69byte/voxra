@@ -4,26 +4,36 @@ from fastapi.responses import HTMLResponse
 from app.core.rate_limit import check_rate_limit
 from app.core.security import require_user, require_creator
 from app.models.schemas import RechargeInitiateRequest, WithdrawalRequest, WithdrawalIncreaseRequest
-from app.services import cashfree_service, model_referral_service, payment_service, wallet_service
+from app.services import kwikupi_service, model_referral_service, payment_service, wallet_service
 from app.core.database import get_db
 from app.core.config import get_settings
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from html import escape
+import json
+import logging
 import uuid
 
 router = APIRouter(prefix="/wallet", tags=["wallet"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/packages")
 async def packages(user: dict = Depends(require_user)):
-    return {"success": True, "packages": wallet_service.RECHARGE_PACKAGES}
+    s = get_settings()
+    return {
+        "success": True,
+        "packages": wallet_service.RECHARGE_PACKAGES,
+        "min_recharge_amount": s.min_recharge_amount,
+        "max_recharge_amount": s.max_recharge_amount,
+        "recharge_commission_rate": s.recharge_commission_rate,
+    }
 
 
 @router.get("/recharge")
 async def recharge_page(token: str = ""):
     """
     Backend-rendered recharge page opened by the app in a browser/webview.
-    Mirrors the old flow: show balance + packs + custom amount, then start
-    Cashfree when the user taps an amount.
+    Shows packs plus a custom amount and starts a live KwikUPI payment.
     """
     from app.core.security import decode_token
 
@@ -34,56 +44,99 @@ async def recharge_page(token: str = ""):
         return HTMLResponse(
             "<h1 style='font-family:system-ui;padding:40px'>Invalid or expired session. Re-open from the app.</h1>",
             status_code=401,
+            headers={"Cache-Control": "no-store"},
         )
 
     db = get_db()
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "name": 1})
-    if not user:
+    user = await db.users.find_one(
+        {"user_id": user_id}, {"_id": 0, "name": 1, "deleted": 1, "is_suspended": 1}
+    )
+    if not user or user.get("deleted"):
         return HTMLResponse("<h1>User not found</h1>", status_code=404)
+    if user.get("is_suspended"):
+        return HTMLResponse("<h1>Account suspended</h1>", status_code=403)
     wallet = await wallet_service.get_wallet(user_id)
     balance = float(wallet.get("balance", 0) or 0)
 
     packs = "".join(
-        f'<button class="pack" data-amount="{p["amount"]}">'
+        f'<button class="pack" data-amount="{p["amount"]}" data-package="{escape(str(p["id"]), quote=True)}">'
         f'<span class="pack-amt">₹{p["amount"]}</span>'
-        f'<span class="pack-label">{p["label"]}</span></button>'
+        f'<span class="pack-label">{escape(str(p["label"]))}</span></button>'
         for p in wallet_service.RECHARGE_PACKAGES
     )
 
     return HTMLResponse(
-        _recharge_page_html(token=token, balance=balance, packs=packs, name=user.get("name") or "there")
+        _recharge_page_html(
+            token=token,
+            balance=balance,
+            packs=packs,
+            name=user.get("name") or "there",
+        ),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Frame-Options": "DENY",
+            "Content-Security-Policy": "frame-ancestors 'none'",
+        },
     )
 
 
 @router.post("/recharge/session")
 async def recharge_session(request: Request):
-    """Browser-side handoff: JWT in body, start a gateway order, return its URL."""
+    """Browser-side handoff: JWT in body, start a live KwikUPI order, return its URL."""
     from app.core.security import decode_token
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid request body")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Invalid request body")
     token = body.get("token")
+    package_id = body.get("package_id")
     try:
         amount = float(body.get("amount") or 0)
     except (TypeError, ValueError):
         amount = 0
-    package_id = body.get("package_id")
-    if not token or amount <= 0:
+    if not token or (amount <= 0 and not package_id):
         raise HTTPException(400, "Invalid parameters")
     try:
         payload = decode_token(token)
     except Exception:
         raise HTTPException(401, "Session expired")
     db = get_db()
-    user = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0})
-    if not user:
+    user = await db.users.find_one(
+        {"user_id": payload["sub"]},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "deleted": 1, "is_suspended": 1},
+    )
+    if not user or user.get("deleted"):
         raise HTTPException(404, "User not found")
+    if user.get("is_suspended"):
+        raise HTTPException(403, "Account suspended")
+
+    allowed = await check_rate_limit(
+        f"wallet:recharge:{user['user_id']}", limit=10, window_seconds=60
+    )
+    if not allowed:
+        raise HTTPException(429, "Too many recharge attempts. Try again in a minute.")
     try:
         result = await payment_service.initiate_recharge(
             user=user, amount=amount, package_id=package_id
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    return {"success": True, "payment_url": result.get("payment_url"), "order_id": result.get("order_id")}
+    except Exception:
+        logger.exception("Recharge session failed for %s", user.get("user_id"))
+        raise HTTPException(502, "Could not start payment. Please try again.")
+    return {
+        "success": True,
+        "payment_url": result.get("payment_url"),
+        "order_id": result.get("order_id"),
+        "amount": result.get("amount"),
+        "credit_amount": result.get("credit_amount"),
+        "commission": result.get("commission"),
+    }
 
 
 @router.get("/balance")
@@ -99,8 +152,13 @@ async def balance(user: dict = Depends(require_user)):
 @router.get("/transactions")
 async def transactions(user: dict = Depends(require_user)):
     db = get_db()
+    # Pending/failed gateway attempts are internal reconciliation state, not
+    # ledger entries. Only completed wallet movements are shown to the user.
     txs = (
-        await db.transactions.find({"user_id": user["user_id"]}, {"_id": 0})
+        await db.transactions.find(
+            {"user_id": user["user_id"], "type": {"$ne": "RECHARGE_PENDING"}},
+            {"_id": 0},
+        )
         .sort("created_at", -1)
         .limit(100)
         .to_list(100)
@@ -119,20 +177,26 @@ async def recharge_initiate(body: RechargeInitiateRequest, user: dict = Depends(
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    except Exception as e:
-        raise HTTPException(500, str(e)) from e
+    except Exception:
+        logger.exception("Recharge initiation failed for %s", user.get("user_id"))
+        raise HTTPException(502, "Could not start payment. Please try again.")
 
 
 @router.get("/recharge/dev-complete")
 async def recharge_dev_complete(order_id: str):
-    result = await payment_service.process_order_success(order_id)
-    scheme = get_settings().deep_link_scheme or "simpletalk"
-    html = _return_html("Payment successful" if result.get("success") else "Payment failed", order_id, scheme)
-    return HTMLResponse(html)
+    """Removed. Live payment verification is the only way to credit a recharge."""
+    raise HTTPException(
+        404,
+        "This endpoint is disabled. Recharges are credited only after a verified live payment.",
+    )
 
 
-def _return_html(title: str, order_id: str, scheme: str) -> str:
+def _return_html(title: str, order_id: str, scheme: str, message: str = "") -> str:
     deep_link = f"{scheme}://wallet"
+    safe_title = escape(title)
+    safe_order = escape(order_id)
+    safe_message = escape(message)
+    safe_deep_link = escape(deep_link, quote=True)
     return f"""<!DOCTYPE html>
     <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
@@ -141,32 +205,43 @@ def _return_html(title: str, order_id: str, scheme: str) -> str:
       .card {{ padding:40px 28px; }}
       h1 {{ font-size:22px; margin:0 0 6px; }}
       p {{ color:#8a9a94; margin:0 0 24px; font-size:14px; }}
+      .msg {{ color:#f3efe8; margin-bottom:8px; }}
       a {{ display:inline-block; background:#0f766e; color:#fff; text-decoration:none;
         padding:14px 28px; border-radius:14px; font-weight:700; }}
     </style></head>
     <body><div class="card">
-      <h1>{title}</h1>
-      <p>Order {order_id}</p>
-      <a href="{deep_link}">Return to Simple Talk</a>
+      <h1>{safe_title}</h1>
+      {f'<p class="msg">{safe_message}</p>' if safe_message else ''}
+      <p>Order {safe_order}</p>
+      <a href="{safe_deep_link}">Return to Simple Talk</a>
     </div>
     <script>
       // Auto-close the in-app browser / return to the app when possible.
-      setTimeout(function () {{ window.location.href = "{deep_link}"; }}, 1200);
+      setTimeout(function () {{ window.location.href = "{safe_deep_link}"; }}, 1500);
     </script>
     </body></html>"""
 
 
 def _recharge_page_html(*, token: str, balance: float, packs: str, name: str) -> str:
+    settings = get_settings()
+    min_amount = float(settings.min_recharge_amount)
+    max_amount = float(settings.max_recharge_amount)
+    commission_rate = float(settings.recharge_commission_rate)
+    commission_pct = commission_rate * 100
+    credit_pct = 100 - commission_pct
+    safe_name = escape(name)
+    token_json = json.dumps(token)
     return f"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="referrer" content="no-referrer">
 <title>Recharge — Simple Talk</title>
 <style>
   :root {{ --brand:#0f766e; --brand-dark:#0b4f4a; --bg:#070d0c; --card:#101a18; --text:#f3efe8; --muted:#8a9a94; --border:rgba(255,255,255,0.1); }}
   * {{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }}
   body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text);
-    margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding-bottom:120px; }}
+    margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding-bottom:140px; }}
   .header {{ width:100%; max-width:520px; padding:22px 20px 10px; }}
   .header h1 {{ margin:0; font-size:22px; font-family:Georgia,serif; }}
   .header p {{ margin:4px 0 0; color:var(--muted); font-size:13px; }}
@@ -188,20 +263,23 @@ def _recharge_page_html(*, token: str, balance: float, packs: str, name: str) ->
   .custom-input:focus {{ border-color:var(--brand); }}
   .wrap {{ position:relative; display:flex; align-items:center; }}
   .rupee {{ position:absolute; left:16px; font-size:20px; color:var(--brand); font-weight:600; }}
-  .hint {{ font-size:12px; color:var(--muted); margin-top:8px; }}
+  .hint {{ font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5; }}
+  .summary {{ margin-top:14px; padding:12px 14px; border-radius:12px; background:#0d211e; border:1px solid rgba(15,118,110,.45);
+    font-size:13px; line-height:1.5; min-height:44px; }}
   .footer {{ position:fixed; bottom:0; width:100%; max-width:520px; padding:16px 20px 26px; background:var(--bg);
     border-top:1px solid var(--border); }}
   .pay {{ width:100%; background:var(--brand); color:#fff; border:none; border-radius:14px; padding:16px; font-size:17px; font-weight:700; cursor:pointer; }}
   .pay:disabled {{ opacity:.5; }}
-  #loader {{ display:none; position:fixed; inset:0; background:rgba(7,13,12,.85); z-index:100; align-items:center; justify-content:center; flex-direction:column; }}
+  #loader {{ display:none; position:fixed; inset:0; background:rgba(7,13,12,.9); z-index:100; align-items:center; justify-content:center; flex-direction:column; }}
   .spinner {{ width:42px; height:42px; border:4px solid rgba(255,255,255,.15); border-top-color:var(--brand); border-radius:50%; animation:spin 1s linear infinite; }}
   @keyframes spin {{ to {{ transform:rotate(360deg); }} }}
   .err {{ color:#ef4444; font-size:13px; margin-top:10px; min-height:16px; }}
+  .secure {{ margin-top:12px; text-align:center; font-size:11px; color:var(--muted); }}
 </style></head>
 <body>
   <div class="header">
     <h1>Recharge wallet</h1>
-    <p>Hi {name}, add credits for instant calls.</p>
+    <p>Hi {safe_name}, add credits for instant calls.</p>
   </div>
   <div class="container">
     <div class="balance">
@@ -213,26 +291,58 @@ def _recharge_page_html(*, token: str, balance: float, packs: str, name: str) ->
     <div class="custom">
       <div class="section-title" style="margin-top:0">Or enter an amount</div>
       <div class="wrap"><span class="rupee">₹</span>
-        <input id="custom" class="custom-input" type="number" inputmode="numeric" placeholder="Minimum 10" min="10">
+        <input id="custom" class="custom-input" type="number" inputmode="decimal" step="0.01"
+          placeholder="Minimum ₹{min_amount:.0f}" min="{min_amount:.2f}" max="{max_amount:.2f}">
       </div>
-      <div class="hint">A 6% gateway &amp; service fee applies. 94% is added to your balance.</div>
+      <div class="hint">UPI payment via KwikUPI. A {commission_pct:.0f}% fee is deducted, so {credit_pct:.0f}% of the amount you pay is added to your wallet.</div>
+      <div class="summary" id="summary">Select an amount to see how much will be added.</div>
     </div>
     <div class="err" id="err"></div>
   </div>
-  <div class="footer"><button class="pay" id="pay" disabled>Select an amount</button></div>
+  <div class="footer">
+    <button class="pay" id="pay" disabled>Select an amount</button>
+    <div class="secure">Secure live payment · KwikUPI</div>
+  </div>
   <div id="loader"><div class="spinner"></div><p style="color:var(--muted);margin-top:14px">Starting secure checkout…</p></div>
 
 <script>
-  var TOKEN = {token!r};
+  var TOKEN = {token_json};
+  var MIN_AMOUNT = {min_amount:.2f};
+  var MAX_AMOUNT = {max_amount:.2f};
+  var COMMISSION_RATE = {commission_rate:.8f};
   var selected = null;
+  var selectedPackage = null;
+  var starting = false;
   var custom = document.getElementById('custom');
   var pay = document.getElementById('pay');
   var err = document.getElementById('err');
+  var summary = document.getElementById('summary');
+
+  function money(n) {{ return n.toFixed(2); }}
 
   function refresh() {{
-    var val = selected || (custom.value ? Number(custom.value) : 0);
-    if (val && val >= 10) {{ pay.disabled = false; pay.textContent = 'Pay ₹' + val; }}
-    else {{ pay.disabled = true; pay.textContent = 'Select an amount'; }}
+    var val = selected !== null ? selected : (custom.value ? Number(custom.value) : 0);
+    if (val) val = Math.round(val * 100) / 100;
+    if (val && val >= MIN_AMOUNT && val <= MAX_AMOUNT) {{
+      var fee = Math.round(val * COMMISSION_RATE * 100) / 100;
+      var credit = Math.round((val - fee) * 100) / 100;
+      pay.disabled = false;
+      pay.textContent = 'Pay ₹' + money(val);
+      summary.textContent = '₹' + money(credit) + ' will be added after a ₹' + money(fee) + ' fee ({commission_pct:.0f}%).';
+      err.textContent = '';
+    }} else if (val > MAX_AMOUNT) {{
+      pay.disabled = true;
+      pay.textContent = 'Amount too large';
+      summary.textContent = 'Maximum recharge is ₹' + money(MAX_AMOUNT) + '.';
+    }} else if (val > 0) {{
+      pay.disabled = true;
+      pay.textContent = 'Minimum ₹' + money(MIN_AMOUNT);
+      summary.textContent = 'Enter at least ₹' + money(MIN_AMOUNT) + ' to continue.';
+    }} else {{
+      pay.disabled = true;
+      pay.textContent = 'Select an amount';
+      summary.textContent = 'Select an amount to see how much will be added.';
+    }}
   }}
 
   document.querySelectorAll('.pack').forEach(function (b) {{
@@ -241,75 +351,137 @@ def _recharge_page_html(*, token: str, balance: float, packs: str, name: str) ->
       b.classList.add('selected');
       custom.value = '';
       selected = Number(b.dataset.amount);
+      selectedPackage = b.dataset.package || null;
       err.textContent = '';
       refresh();
     }});
   }});
-  custom.addEventListener('input', function () {{ selected = null; document.querySelectorAll('.pack').forEach(function (x) {{ x.classList.remove('selected'); }}); refresh(); }});
+  custom.addEventListener('input', function () {{
+    selected = null;
+    selectedPackage = null;
+    document.querySelectorAll('.pack').forEach(function (x) {{ x.classList.remove('selected'); }});
+    refresh();
+  }});
 
   pay.addEventListener('click', async function () {{
-    var val = selected || (custom.value ? Number(custom.value) : 0);
-    if (!val || val < 10) {{ err.textContent = 'Minimum recharge is ₹10'; return; }}
+    if (starting) return;
+    var val = selected !== null ? selected : (custom.value ? Number(custom.value) : 0);
+    if (val) val = Math.round(val * 100) / 100;
+    if (!val || val < MIN_AMOUNT) {{ err.textContent = 'Minimum recharge is ₹' + money(MIN_AMOUNT); return; }}
+    if (val > MAX_AMOUNT) {{ err.textContent = 'Maximum recharge is ₹' + money(MAX_AMOUNT); return; }}
+    starting = true;
+    pay.disabled = true;
     document.getElementById('loader').style.display = 'flex';
     try {{
       var res = await fetch('/api/wallet/recharge/session', {{
         method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify({{ token: TOKEN, amount: val }})
+        body: JSON.stringify({{ token: TOKEN, amount: val, package_id: selectedPackage }})
       }});
-      var data = await res.json();
-      if (!res.ok || !data.payment_url) throw new Error(data.detail || 'Could not start payment');
+      var data = await res.json().catch(function () {{ return {{}}; }});
+      if (!res.ok || !data.payment_url) {{
+        var detail = data.detail;
+        if (Array.isArray(detail)) detail = detail.map(function (d) {{ return d.msg || String(d); }}).join(' ');
+        throw new Error(detail || 'Could not start payment');
+      }}
       window.location.href = data.payment_url;
     }} catch (e) {{
+      starting = false;
       document.getElementById('loader').style.display = 'none';
       err.textContent = e.message || 'Something went wrong';
+      refresh();
     }}
   }});
+
+  refresh();
 </script>
 </body></html>"""
 
 
 @router.get("/recharge/return")
 async def recharge_return(order_id: str = ""):
-    status = "Payment processing"
+    title = "Payment processing"
+    message = "Your payment is being verified. It will be added to your wallet automatically."
     if order_id:
-        result = await payment_service.verify_with_gateway(order_id)
-        if result.get("status") == "SUCCESS":
-            status = "Payment successful"
-        elif result.get("status") == "FAILED":
-            status = "Payment failed"
+        try:
+            result = await payment_service.verify_with_gateway(order_id)
+        except Exception:
+            logger.exception("Return-page verification failed for %s", order_id)
+            result = {"status": "PENDING"}
+        status = result.get("status")
+        if status == "SUCCESS":
+            title = "Payment successful"
+            credited = result.get("credited")
+            if result.get("already"):
+                message = "This recharge was already added to your wallet."
+            elif credited is not None:
+                message = f"₹{float(credited):,.2f} was added to your wallet."
+        elif status == "FAILED":
+            title = "Payment failed"
+            message = "No money was added. You can try again from the app."
+        elif status == "REVIEW":
+            title = "Payment under review"
+            message = "We could not verify this payment automatically. Support will review it."
     scheme = get_settings().deep_link_scheme or "simpletalk"
-    return HTMLResponse(_return_html(status, order_id, scheme))
+    return HTMLResponse(
+        _return_html(title, order_id, scheme, message),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Referrer-Policy": "no-referrer",
+            "X-Frame-Options": "DENY",
+            "Content-Security-Policy": "frame-ancestors 'none'",
+        },
+    )
 
 
 @router.post("/recharge/webhook")
+@router.post("/recharge/kwikupi/webhook", include_in_schema=False)
 async def recharge_webhook(request: Request):
+    """KwikUPI webhook: verify HMAC, then re-check status with the gateway."""
     raw = await request.body()
+    if not kwikupi_service.configured():
+        raise HTTPException(503, "Payment gateway is not configured")
     signature = request.headers.get("x-webhook-signature", "")
-    timestamp = request.headers.get("x-webhook-timestamp", "")
-    # Cashfree signs every webhook. If a secret is configured, require a valid signature.
-    if get_settings().cashfree_secret_key and not cashfree_service.verify_webhook_signature(
-        raw, signature, timestamp
-    ):
+    if not kwikupi_service.verify_webhook_signature(raw, signature):
         raise HTTPException(401, "Invalid webhook signature")
-
-    import json
 
     try:
         body = json.loads(raw or b"{}")
     except Exception:
         raise HTTPException(400, "Invalid JSON")
-    order_id = (
-        body.get("data", {}).get("order", {}).get("order_id")
-        or body.get("order_id")
-        or body.get("orderId")
-    )
-    if not order_id:
-        raise HTTPException(400, "order_id required")
-    return await payment_service.verify_with_gateway(str(order_id))
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Invalid payload")
+
+    try:
+        result = await payment_service.handle_webhook_payload(body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception:
+        logger.exception("KwikUPI webhook processing failed")
+        raise HTTPException(500, "Webhook processing failed")
+
+    status = result.get("status")
+    if status == "NOT_FOUND":
+        raise HTTPException(404, "Order not found")
+    if status == "PENDING" and result.get("retryable"):
+        # Ask KwikUPI to retry when the status API was temporarily unreachable.
+        raise HTTPException(502, "Gateway status unavailable")
+    if status == "REVIEW":
+        logger.critical("KwikUPI webhook requires manual review: %s", result)
+    return {
+        "received": True,
+        "status": status,
+        "order_id": body.get("order_id") or body.get("orderId"),
+        "credited": result.get("credited"),
+    }
 
 
 @router.post("/recharge/verify-pending")
 async def verify_pending(request: Request, user: dict = Depends(require_user)):
+    allowed = await check_rate_limit(
+        f"wallet:recharge:verify:{user['user_id']}", limit=6, window_seconds=60
+    )
+    if not allowed:
+        raise HTTPException(429, "Too many verification attempts. Try again shortly.")
     try:
         body = await request.json()
     except Exception:
@@ -333,6 +505,7 @@ async def verify_pending(request: Request, user: dict = Depends(require_user)):
                 "user_id": user["user_id"],
                 "type": "RECHARGE_PENDING",
                 "metadata.status": {"$in": ["PENDING", "PROCESSING"]},
+                "metadata.gateway": "kwikupi",
             },
             {"_id": 0, "metadata.order_id": 1},
         )
@@ -341,19 +514,37 @@ async def verify_pending(request: Request, user: dict = Depends(require_user)):
         .to_list(10)
     )
     recovered = 0
+    reviewed = 0
     credited = 0.0
     for row in pending:
         oid = (row.get("metadata") or {}).get("order_id")
         if not oid:
             continue
-        result = await payment_service.verify_with_gateway(oid)
+        try:
+            result = await payment_service.verify_with_gateway(oid)
+        except Exception:
+            logger.exception("Pending recharge verification failed for %s", oid)
+            continue
         if result.get("status") == "SUCCESS":
             recovered += 1
             credited += float(result.get("credited") or 0)
+        elif result.get("status") == "REVIEW":
+            reviewed += 1
+    # Surface recent stuck payments even when the webhook/return page already
+    # moved them to REVIEW before the app opened.
+    reviewed += await db.transactions.count_documents(
+        {
+            "user_id": user["user_id"],
+            "type": "RECHARGE_PENDING",
+            "metadata.status": "REVIEW",
+            "created_at": {"$gte": datetime.now(timezone.utc) - timedelta(hours=24)},
+        }
+    )
     wallet = await wallet_service.get_wallet(user["user_id"])
     return {
         "success": True,
         "recovered_count": recovered,
+        "review_count": reviewed,
         "credited": credited,
         "balance": wallet.get("balance", 0),
     }

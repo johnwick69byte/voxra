@@ -163,7 +163,7 @@ On the **creator** phone:
   **Available**.
 
 On the **fan** phone:
-- Recharge (Cashfree sandbox returns to `simpletalk://wallet`), then open the
+- Recharge with a live KwikUPI payment (₹50 test), then open the
   creator and start an audio call.
 
 Run the matrix in `docs/CALL_FLOW_TESTS.md` (billing, wallets, withdrawal) and
@@ -256,6 +256,9 @@ compiled into the native project).
 
 ## 5. Environment reference
 
+> KwikUPI credentials, dashboard webhook setup, and the live ₹50 test are
+> documented in [KWIKUPI_PAYMENTS.md](./KWIKUPI_PAYMENTS.md).
+
 ### Mobile (public — embedded at build time; already in `eas.json`)
 ```
 EXPO_PUBLIC_API_URL=https://voxra-dkfe.onrender.com/api
@@ -281,9 +284,10 @@ AGORA_APP_ID=…           AGORA_APP_CERTIFICATE=…
 MESSAGECENTRAL_CUSTOMER_ID=…  MESSAGECENTRAL_API_KEY=…  MESSAGECENTRAL_EMAIL=…
 FIREBASE_CREDENTIALS_PATH=/etc/secrets/firebase-adminsdk.json
 # OR FIREBASE_CREDENTIALS_JSON={... entire service-account JSON ... }
-CASHFREE_APP_ID=…        CASHFREE_SECRET_KEY=…     CASHFREE_ENVIRONMENT=production
-CASHFREE_RETURN_URL=https://voxra-dkfe.onrender.com/api/wallet/recharge/return
-CASHFREE_NOTIFY_URL=https://voxra-dkfe.onrender.com/api/wallet/recharge/webhook
+KWIKUPI_BASE_URL=https://kwikupi.com/api
+KWIKUPI_API_KEY=…        KWIKUPI_API_SECRET=…
+KWIKUPI_RETURN_URL=https://voxra-dkfe.onrender.com/api/wallet/recharge/return
+MIN_RECHARGE_AMOUNT=50   MAX_RECHARGE_AMOUNT=100000
 IMAGEKIT_PRIVATE_KEY=…   IMAGEKIT_PUBLIC_KEY=…     IMAGEKIT_URL_ENDPOINT=…
 COMMISSION_RATE=0.15     CALL_RING_TIMEOUT_SECONDS=45
 WITHDRAWAL_COMMISSION_RATE=0.10
@@ -309,7 +313,9 @@ VITE_API_URL=https://voxra-dkfe.onrender.com/api
 - [ ] Give the API the Admin SDK contents: Render Secret File
       `firebase-adminsdk.json` (Option A) **or** `FIREBASE_CREDENTIALS_JSON`
       env var (Option B)
-- [ ] Set the API env vars above in Render (`CASHFREE_*` especially)
+- [ ] Set the API env vars above in Render (`KWIKUPI_*` especially) and configure the live webhook URL in the KwikUPI Merchant Dashboard
+- [ ] `GET /api/healthz` reports `"kwikupi_configured": true`
+- [ ] Live ₹50 recharge credits exactly ₹47 and writes a ₹3 commission row; refreshing/retrying does not credit twice
 - [ ] Replace the 3 icon/splash images in `apps/mobile/assets/`
       (`notification-icon.png` is generated — see §4)
 - [ ] `eas build -p android --profile production-apk` → install on 2 phones

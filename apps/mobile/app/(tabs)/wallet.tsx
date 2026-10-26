@@ -9,7 +9,6 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as LinkingExpo from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import Toast from "react-native-toast-message";
@@ -28,7 +27,6 @@ import { theme } from "../../src/theme/tokens";
 import { APP_SCHEME } from "../../src/theme/brand";
 import * as Haptics from "expo-haptics";
 
-const PENDING_ORDER_KEY = "pending_recharge_order";
 const TX_FILTERS = ["ALL", "RECHARGE", "CALL", "GIFT", "WITHDRAW", "BONUS"] as const;
 
 export default function WalletScreen() {
@@ -44,6 +42,8 @@ export default function WalletScreen() {
   const [txFilter, setTxFilter] = useState<(typeof TX_FILTERS)[number]>("ALL");
   const scale = useSharedValue(1);
   const prevBalance = useRef(0);
+  const verifyInFlight = useRef<Promise<boolean> | null>(null);
+  const reviewNotified = useRef(false);
 
   const balAnim = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -81,24 +81,48 @@ export default function WalletScreen() {
     }
   }, []);
 
-  const verifyPending = useCallback(async () => {
-    const orderId = await AsyncStorage.getItem(PENDING_ORDER_KEY);
-    try {
-      const res = await walletAPI.verifyPending(orderId || undefined);
-      if (orderId) await AsyncStorage.removeItem(PENDING_ORDER_KEY);
-      const credited = Number(res.data?.credited || 0);
-      if (res.data?.status === "SUCCESS" || res.data?.recovered_count > 0 || credited > 0) {
-        Toast.show({
-          type: "success",
-          text1: "Payment credited",
-          text2: credited > 0 ? `₹${credited.toFixed(2)} added` : undefined,
-        });
-        await load();
-      } else if (res.data?.status === "FAILED") {
-        Toast.show({ type: "error", text1: "Payment failed" });
+  const verifyPending = useCallback(async (): Promise<boolean> => {
+    // The deep-link listener, focus effect and browser-close path can all fire
+    // for one payment. Share the in-flight request so users see one toast.
+    if (verifyInFlight.current) return verifyInFlight.current;
+    const task = (async () => {
+      try {
+        const res = await walletAPI.verifyPending();
+        const credited = Number(res.data?.credited || 0);
+        if (res.data?.status === "SUCCESS" || res.data?.recovered_count > 0 || credited > 0) {
+          Toast.show({
+            type: "success",
+            text1: "Payment credited",
+            text2: credited > 0 ? `₹${credited.toFixed(2)} added` : undefined,
+          });
+          await load();
+          return true;
+        }
+        if (Number(res.data?.review_count || 0) > 0 || res.data?.status === "REVIEW") {
+          if (!reviewNotified.current) {
+            reviewNotified.current = true;
+            Toast.show({
+              type: "info",
+              text1: "Payment under review",
+              text2: "Support will verify it before crediting.",
+            });
+          }
+          return true;
+        }
+        if (res.data?.status === "FAILED") {
+          Toast.show({ type: "error", text1: "Payment failed" });
+          return true;
+        }
+      } catch {
+        /* retry on next open */
       }
-    } catch {
-      /* retry on next open */
+      return false;
+    })();
+    verifyInFlight.current = task;
+    try {
+      return await task;
+    } finally {
+      if (verifyInFlight.current === task) verifyInFlight.current = null;
     }
   }, [load]);
 
@@ -123,17 +147,20 @@ export default function WalletScreen() {
     return () => sub.remove();
   }, [load, verifyPending]);
 
-  const recharge = async (amount?: number, packageId?: string) => {
+  const recharge = async () => {
     setCheckoutBusy(true);
     try {
       // Open the backend-rendered recharge page (balance + packs + custom amount),
-      // which then starts Cashfree. This mirrors the old app's flow.
-      const base = (process.env.EXPO_PUBLIC_API_URL || "").replace(/\/api$/, "");
+      // which then starts a live KwikUPI payment.
+      const base = (process.env.EXPO_PUBLIC_API_URL || "")
+        .replace(/\/api\/?$/, "")
+        .replace(/\/$/, "");
+      if (!base) throw new Error("Payment server is not configured");
       const token = useAuthStore.getState().token;
       const url = `${base}/api/wallet/recharge?token=${encodeURIComponent(token || "")}`;
       const result = await WebBrowser.openAuthSessionAsync(url, `${APP_SCHEME}://wallet`);
-      await verifyPending();
-      if (result.type === "cancel" || result.type === "dismiss") {
+      const handled = await verifyPending();
+      if (!handled && (result.type === "cancel" || result.type === "dismiss")) {
         Toast.show({ type: "info", text1: "Payment not completed" });
       }
     } catch (e: any) {
@@ -181,7 +208,7 @@ export default function WalletScreen() {
         <View style={{ flex: 1 }}>
           <AppText style={styles.rechargeTitle}>Recharge wallet</AppText>
           <AppText variant="caption" style={{ marginTop: 2 }}>
-            Securely via Cashfree. 94% is added to your balance.
+            Secure UPI via KwikUPI. 94% is added after the 6% fee.
           </AppText>
         </View>
         <Ionicons name="chevron-forward" size={22} color={theme.colors.textMuted} />
@@ -239,24 +266,30 @@ export default function WalletScreen() {
             No transactions yet.
           </AppText>
         }
-        renderItem={({ item }) => (
-          <View style={styles.tx}>
-            <View style={styles.txRow}>
-              <AppText style={styles.txType}>{String(item.type || "").replace(/_/g, " ")}</AppText>
-              <AppText style={styles.txAmt}>₹{Number(item.amount).toFixed(2)}</AppText>
+        renderItem={({ item }) => {
+          const walletAmount =
+            item.type === "RECHARGE" && item.metadata?.credit_amount != null
+              ? Number(item.metadata.credit_amount)
+              : Number(item.amount);
+          return (
+            <View style={styles.tx}>
+              <View style={styles.txRow}>
+                <AppText style={styles.txType}>{String(item.type || "").replace(/_/g, " ")}</AppText>
+                <AppText style={styles.txAmt}>₹{walletAmount.toFixed(2)}</AppText>
+              </View>
+              {item.description ? (
+                <AppText variant="caption" style={{ marginTop: 2 }}>
+                  {item.description}
+                </AppText>
+              ) : null}
+              {item.created_at ? (
+                <AppText variant="caption" style={{ marginTop: 4 }}>
+                  {new Date(item.created_at).toLocaleDateString()}
+                </AppText>
+              ) : null}
             </View>
-            {item.description ? (
-              <AppText variant="caption" style={{ marginTop: 2 }}>
-                {item.description}
-              </AppText>
-            ) : null}
-            {item.created_at ? (
-              <AppText variant="caption" style={{ marginTop: 4 }}>
-                {new Date(item.created_at).toLocaleDateString()}
-              </AppText>
-            ) : null}
-          </View>
-        )}
+          );
+        }}
       />
     </View>
   );

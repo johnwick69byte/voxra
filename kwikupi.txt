@@ -1,0 +1,171 @@
+Introduction
+v1.0 API
+KwikUPI Gateway provides a simple REST API to create and manage UPI payments. By integrating our API, you can generate dynamic UPI QR codes and accept payments directly into your Paytm business account without any transaction fees.
+
+Base URL: All API requests should be made to https://kwikupi.com/api
+
+Authentication
+Authenticate your API requests by including your API Key and API Secret in the headers. You can generate these credentials in your Merchant Dashboard.
+
+Headers
+X-API-KEY: your_api_key_here
+X-API-SECRET: your_api_secret_here
+Content-Type: application/json
+Create Payment
+Create a new payment request to get a hosted payment page URL.
+
+POST
+/api/create-payment
+Request Body Parameters
+Parameter	Type	Description
+amount
+Required
+numeric	The amount to charge (Min: 1.00).
+order_id
+Required
+string	Your unique reference for this transaction.
+customer_email	string (email)	Required if you want us to send a Success Email to the customer automatically.
+customer_name	string	The name of the payer to display on the payment page.
+redirect_url	string (URL)	The URL to redirect the customer after payment.
+Code Examples
+PHP (cURL)
+<?php
+
+$curl = curl_init();
+
+$postData = [
+    "amount" => 500.00,
+    "order_id" => "ORD_12345ABCD",
+    "customer_name" => "John Doe",
+    "customer_email" => "john@example.com",
+    "redirect_url" => "https://yourwebsite.com/success"
+];
+
+curl_setopt_array($curl, array(
+  CURLOPT_URL => 'https://kwikupi.com/api/create-payment',
+  CURLOPT_RETURNTRANSFER => true,
+  CURLOPT_POST => true,
+  CURLOPT_POSTFIELDS => json_encode($postData),
+  CURLOPT_HTTPHEADER => array(
+    'X-API-KEY: your_api_key_here',
+    'X-API-SECRET: your_api_secret_here',
+    'Content-Type: application/json'
+  ),
+));
+
+$response = curl_exec($curl);
+$httpcode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+curl_close($curl);
+
+echo $response;
+Node.js (Axios)
+const axios = require('axios');
+
+async function createPayment() {
+  try {
+    const response = await axios.post('https://kwikupi.com/api/create-payment', {
+      amount: 500.00,
+      order_id: 'ORD_12345ABCD',
+      customer_name: 'John Doe',
+      customer_email: 'john@example.com',
+      redirect_url: 'https://yourwebsite.com/success'
+    }, {
+      headers: {
+        'X-API-KEY': 'your_api_key_here',
+        'X-API-SECRET': 'your_api_secret_here',
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log(response.data);
+    // { payment_id: 'pay_xxxxxxxx', payment_page: 'https://kwikupi.com/pay/pay_xxxxxxxx' }
+    
+  } catch (error) {
+    console.error(error.response.data);
+  }
+}
+
+createPayment();
+Example Response (200 OK)
+{
+  "payment_id": "pay_vF2xLm9kP3qR",
+  "payment_page": "https://kwikupi.com/pay/pay_vF2xLm9kP3qR"
+}
+Check Payment Status
+Retrieve the current status of a payment using its `payment_id`. Although we recommend using webhooks, polling is useful for real-time UI updates.
+
+GET
+/api/payment-status/{payment_id}
+Backend API Call (cURL)
+curl --location 'https://kwikupi.com/api/payment-status/pay_vF2xLm9kP3qR' \
+--header 'X-API-KEY: your_api_key_here' \
+--header 'X-API-SECRET: your_api_secret_here'
+Pending Response
+{
+  "payment_id": "pay_vF2xLm9kP3qR",
+  "order_id": "ORD_12345ABCD",
+  "status": "PENDING",
+  "amount": "500.00",
+  "created_at": "2026-03-05T10:00:00Z"
+}
+Success Response
+{
+  "payment_id": "pay_vF2xLm9kP3qR",
+  "order_id": "ORD_12345ABCD",
+  "status": "TXN_SUCCESS",
+  "amount": "500.00",
+  "created_at": "2026-03-05T10:00:00Z"
+}
+List Transactions
+Bulk Data
+Fetch a paginated list of your recent transactions.
+
+GET
+/api/transactions?status=TXN_SUCCESS&page=1
+Payment Links
+Payment Links are a no-code alternative to the API. You can create shareable links directly from your Dashboard.
+
+Direct API (Checkout)
+Best for: Custom checkouts, WHMCS, WooCommerce, and server-side automation.
+
+Dashboard Links
+Best for: Manual invoicing, social media, WhatsApp, and single-purpose payments.
+
+Handling Webhooks
+Webhooks allow you to receive real-time notifications. When a payment succeeds, KwikUPI sends a POST request to your URL. We sign the payload using your API Secret via HMAC-SHA256. This signature is sent in the X-Webhook-Signature header.
+
+Automatic Notifications
+
+Both you and your customer (if email is provided) will receive a payment confirmation email from KwikUPI upon success.
+
+PHP Webhook Verification Example
+<?php
+
+// Get the raw POST body
+$payload = file_get_contents('php://input');
+
+// Get the signature passing in the header
+$signatureHeader = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '';
+
+// Your API Secret
+$apiSecret = 'your_api_secret_key';
+
+// Calculate expected signature
+$expectedSignature = hash_hmac('sha256', $payload, $apiSecret);
+
+if (hash_equals($expectedSignature, $signatureHeader)) {
+    // Signature is valid. Process the payload.
+    $data = json_decode($payload, true);
+    
+    if ($data['status'] === 'TXN_SUCCESS') {
+        // Complete the order in your database
+        $orderId = $data['order_id'];
+        $txnId = $data['transaction_id'];
+    }
+    
+    http_response_code(200);
+    echo "OK";
+} else {
+    http_response_code(400);
+    echo "Invalid Signature";
+}

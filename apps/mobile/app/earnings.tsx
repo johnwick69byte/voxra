@@ -116,6 +116,11 @@ export default function EarningsScreen() {
               <View key={w.request_id} style={[styles.line, i === requests.length - 1 && styles.lineLast]}>
                 <View style={{ flex: 1 }}>
                   <AppText style={styles.lineLabel}>{inr(w.amount)}</AppText>
+                  <AppText variant="caption">
+                    {w.status === "REJECTED"
+                      ? "Returned to earnings"
+                      : `Payout ${inr(w.payout_amount ?? Number(w.amount || 0) * 0.9)} after 10% fee`}
+                  </AppText>
                   <AppText variant="caption">{w.upi_id}</AppText>
                 </View>
                 <View style={[styles.status, w.status === "PAID" && styles.statusPaid]}>

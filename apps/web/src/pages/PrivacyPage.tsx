@@ -108,8 +108,8 @@ export default function PrivacyPage() {
       </ul>
       <h3>6.2. Creator remittance</h3>
       <ul>
-        <li><strong>Disbursement.</strong> Earnings are credited after the call or gift settles, then paid to UPI after a review. The minimum withdrawal is ₹100 unless the app shows a different minimum.</li>
-        <li><strong>Commission.</strong> Remittance is net of the facilitation fee described above.</li>
+        <li><strong>Disbursement.</strong> Earnings are credited after the call or gift settles, then paid to UPI after a review. The minimum withdrawal is the amount shown in the app unless the app shows a different minimum.</li>
+        <li><strong>Commission.</strong> A 10% withdrawal commission is deducted from the gross amount requested. The creator receives the remaining 90%. If the creator has an active referrer, 5% of the gross withdrawal is paid to that referrer and the platform retains 5%; otherwise the platform retains the full 10%.</li>
       </ul>
 
       <h2>7. Conduct and review data</h2>

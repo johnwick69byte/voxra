@@ -104,6 +104,7 @@ class CompleteProfileRequest(BaseModel):
     picture: Optional[str] = None
     user_type: UserType = UserType.USER
     referral_code: Optional[str] = None
+    model_referral_code: Optional[str] = None
     bio: Optional[str] = None
     gender: Optional[str] = None
     category: Optional[str] = None

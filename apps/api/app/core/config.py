@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     environment: str = "development"
     allow_admin_bootstrap: bool = True
+    app_name: str = "Simple Talk"
 
     messagecentral_customer_id: str = ""
     messagecentral_api_key: str = ""
@@ -59,6 +60,11 @@ class Settings(BaseSettings):
     commission_rate: float = 0.15
     referral_bonus_referrer: float = 25.0
     referral_bonus_referee: float = 20.0
+    # Withdrawal economics: the creator pays 10% on the requested amount.
+    # If the creator was referred, 5% of the gross withdrawal is paid to the
+    # referrer and the platform keeps the other 5%. Otherwise the platform
+    # keeps the full 10%.
+    withdrawal_commission_rate: float = 0.10
     # Model Referral Settings
     model_referral_bonus_percentage: float = 5.0
     model_referral_min_withdrawal: float = 100.0

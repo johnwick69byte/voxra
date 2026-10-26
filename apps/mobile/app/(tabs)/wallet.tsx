@@ -29,7 +29,7 @@ import { APP_SCHEME } from "../../src/theme/brand";
 import * as Haptics from "expo-haptics";
 
 const PENDING_ORDER_KEY = "pending_recharge_order";
-const TX_FILTERS = ["ALL", "RECHARGE", "CALL", "GIFT", "WITHDRAW"] as const;
+const TX_FILTERS = ["ALL", "RECHARGE", "CALL", "GIFT", "WITHDRAW", "BONUS"] as const;
 
 export default function WalletScreen() {
   const user = useAuthStore((s) => s.user);

@@ -66,6 +66,13 @@ async def me(user: dict = Depends(require_user)):
     if not user.get("referral_code"):
         code = await referral_service.ensure_referral_code(user)
         user = {**user, "referral_code": code}
+
+    # Backfill creator referral codes for accounts created before the program.
+    if user.get("user_type") == "creator" and not user.get("model_referral_code"):
+        from app.services import model_referral_service
+
+        code = await model_referral_service.ensure_model_referral_code(user)
+        user = {**user, "model_referral_code": code}
     return {"success": True, "user": user, "creator_profile": profile, "wallet": wallet}
 
 
@@ -101,10 +108,20 @@ async def complete_profile(body: CompleteProfileRequest, user: dict = Depends(re
     elif body.user_type.value == "creator":
         raise HTTPException(400, "Username must be at least 3 characters")
 
+    settings = get_settings()
+    is_creator = body.user_type.value == "creator"
+
     if not user.get("referral_code"):
         updates["referral_code"] = await auth_service.generate_referral_code()
 
-    if body.user_type.value == "creator":
+    if is_creator and not user.get("model_referral_code"):
+        updates["model_referral_code"] = await auth_service.generate_referral_code(
+            prefix=settings.model_referral_code_prefix,
+            length=settings.model_referral_code_length,
+            field="model_referral_code",
+        )
+
+    if is_creator:
         if body.gender not in GENDERS:
             raise HTTPException(400, "Select a gender")
         if body.category not in CATEGORIES:
@@ -164,6 +181,60 @@ async def complete_profile(body: CompleteProfileRequest, user: dict = Depends(re
         if referrer["user_id"] == user["user_id"]:
             raise HTTPException(400, "You cannot use your own referral code")
         updates["referred_by"] = referrer["user_id"]
+
+    # Model referral code (only creators can be referred by another creator).
+    if body.model_referral_code and is_creator:
+        code = body.model_referral_code.strip().upper()
+        if user.get("model_referred_by"):
+            raise HTTPException(400, "You have already used a model referral code")
+        if code == (user.get("model_referral_code") or "").upper():
+            raise HTTPException(400, "You cannot use your own model referral code")
+        referrer = await db.users.find_one(
+            {"model_referral_code": code, "user_type": "creator"}
+        )
+        if not referrer:
+            raise HTTPException(400, "Invalid model referral code")
+        approved_profile = await db.creator_profiles.find_one(
+            {"user_id": referrer["user_id"], "is_approved": True},
+            {"_id": 0, "user_id": 1},
+        )
+        if not approved_profile:
+            raise HTTPException(400, "Invalid model referral code")
+        if referrer["user_id"] == user["user_id"]:
+            raise HTTPException(400, "You cannot use your own model referral code")
+
+        # Prevent circular chains (A -> B -> A, or longer).
+        cursor_id = referrer.get("model_referred_by")
+        for _ in range(10):
+            if not cursor_id:
+                break
+            if cursor_id == user["user_id"]:
+                raise HTTPException(400, "Circular model referral not allowed")
+            parent = await db.users.find_one(
+                {"user_id": cursor_id}, {"_id": 0, "model_referred_by": 1}
+            )
+            cursor_id = parent.get("model_referred_by") if parent else None
+
+        updates["model_referred_by"] = referrer["user_id"]
+        # Track the new creator on the referrer's list (idempotent).
+        await db.users.update_one(
+            {
+                "user_id": referrer["user_id"],
+                "model_referrals.user_id": {"$ne": user["user_id"]},
+            },
+            {
+                "$push": {
+                    "model_referrals": {
+                        "user_id": user["user_id"],
+                        "name": updates.get("name") or user.get("name") or "Model",
+                        "joined_at": datetime.now(timezone.utc),
+                        "total_withdrawals": 0.0,
+                        "total_bonus_from_them": 0.0,
+                        "status": "pending",
+                    }
+                }
+            },
+        )
 
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})

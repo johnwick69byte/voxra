@@ -1,13 +1,11 @@
 """Model Referral Router - handles model-to-model referral endpoints."""
 
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.core.config import get_settings
 from app.core.security import require_creator, require_user
 from app.services import model_referral_service
-from app.theme.brand import APP_NAME, APP_SCHEME
-
 
 router = APIRouter(prefix="/model-referral", tags=["model-referral"])
 
@@ -24,9 +22,7 @@ async def model_referral_overview(user: dict = Depends(require_creator)):
 
 @router.post("/apply")
 async def apply_model_referral(body: ApplyModelReferralRequest, user: dict = Depends(require_user)):
-    """Apply a model referral code (only for creators)."""
-    if user.get("user_type") != "creator":
-        raise HTTPException(403, "Only creators can use model referral codes")
+    """Apply a model referral code (only creators can apply one)."""
     return await model_referral_service.apply_model_referral_code(user, body.code)
 
 
@@ -44,9 +40,11 @@ async def model_referrals_list(user: dict = Depends(require_creator)):
 
 @router.get("/share-message")
 async def get_share_message(user: dict = Depends(require_creator)):
-    """Get the share message for model referral."""
-    overview = await model_referral_service.get_model_referral_overview(user)
-    code = user.get("model_referral_code") or ""
-    scheme = APP_SCHEME or "simpletalk"
-    share_url = f"{scheme}://login?model_ref={code}"
-    return {"success": True, "message": model_referral_service._build_share_message(code, share_url)}
+    """Get the share message for the creator's model referral code."""
+    settings = get_settings()
+    code = await model_referral_service.ensure_model_referral_code(user)
+    share_url = f"{settings.deep_link_scheme or 'simpletalk'}://login?model_ref={code}"
+    return {
+        "success": True,
+        "message": model_referral_service.build_share_message(code, share_url),
+    }

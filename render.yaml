@@ -18,6 +18,12 @@ services:
         value: "30"
       - key: COMMISSION_RATE
         value: "0.15"
+      - key: WITHDRAWAL_COMMISSION_RATE
+        value: "0.10"
+      - key: MODEL_REFERRAL_BONUS_PERCENTAGE
+        value: "5"
+      - key: MODEL_REFERRAL_MIN_WITHDRAWAL
+        value: "100"
       - key: CALL_RING_TIMEOUT_SECONDS
         value: "45"
       - key: MIN_AUDIO_RATE

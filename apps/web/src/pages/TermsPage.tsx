@@ -77,6 +77,7 @@ export default function TermsPage() {
         <li><strong>Not a digital good.</strong> The balance is not in-app currency for media or content. It is held to settle a live human session.</li>
         <li><strong>Use.</strong> Recharged amounts are committed to sessions on Simple Talk. They are not a bank deposit and they are not transferable to another person, except through the referral rules in the app.</li>
         <li><strong>Creator earnings.</strong> A creator’s earnings are a separate balance and are remitted to UPI after review. Fans cannot spend that balance.</li>
+        <li><strong>Withdrawal commission.</strong> A 10% withdrawal commission applies to the amount a creator requests. The creator is paid the remaining 90%. If the creator was referred by another creator, 5% of the gross withdrawal is paid to the referrer from that commission and 5% is retained by Simple Talk. If there is no active referrer, including where either account has been deleted, Simple Talk retains the full 10%.</li>
       </ul>
 
       <h2>7. Facilitation fees and external settlement</h2>
@@ -144,7 +145,7 @@ export default function TermsPage() {
       <p>
         Account deletion: <Link to="/delete-account">request deletion</Link>.
       </p>
-      <p className="meta">Last updated: 2 October 2026. These terms are subject to change.</p>
+      <p className="meta">Last updated: 26 October 2026. These terms are subject to change.</p>
     </main>
   );
 }

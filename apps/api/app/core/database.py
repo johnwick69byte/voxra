@@ -35,6 +35,8 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.users.update_many({"username": None}, {"$unset": {"username": ""}})
     await db.users.create_index("username", unique=True, sparse=True)
     await db.users.create_index("referral_code", sparse=True)
+    await db.users.create_index("model_referral_code", sparse=True)
+    await db.users.create_index("model_referred_by", sparse=True)
     await db.creator_profiles.create_index("user_id", unique=True)
     await db.creator_profiles.create_index("verification_status")
     await db.creator_profiles.create_index(
@@ -53,6 +55,8 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.transactions.create_index([("user_id", 1), ("created_at", -1)])
     await db.transactions.create_index([("type", 1), ("created_at", -1)])
     await db.transactions.create_index("metadata.order_id", sparse=True)
+    await db.model_referral_bonuses.create_index("withdrawal_request_id", unique=True, sparse=True)
+    await db.model_referral_bonuses.create_index([("referrer_id", 1), ("created_at", -1)])
     await db.platform_commissions.create_index([("type", 1), ("created_at", -1)])
     await db.platform_commissions.create_index([("user_id", 1), ("created_at", -1)])
     await db.platform_commissions.create_index("order_id", sparse=True)

@@ -9,7 +9,13 @@ from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, require_admin, verify_password
 from app.core.socket import emit_to_user
 from app.models.schemas import AdminLoginRequest, BroadcastNotificationRequest
-from app.services import call_service, presence_service, push_service, wallet_service
+from app.services import (
+    call_service,
+    model_referral_service,
+    presence_service,
+    push_service,
+    wallet_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -402,6 +408,11 @@ async def approve_creator(user_id: str, admin: dict = Depends(require_admin)):
         {"user_id": user_id},
         {"$set": {"is_approved": True, "verification_status": "approved"}},
     )
+    # Keep the user-level flag in sync for clients and older queries.
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"is_approved": True, "verification_status": "approved"}},
+    )
     await _audit(admin["user_id"], "approve_creator", {"user_id": user_id})
     await _notify_user(
         user_id,
@@ -416,6 +427,10 @@ async def approve_creator(user_id: str, admin: dict = Depends(require_admin)):
 async def reject_creator(user_id: str, admin: dict = Depends(require_admin)):
     db = get_db()
     await db.creator_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": {"is_approved": False, "verification_status": "rejected"}},
+    )
+    await db.users.update_one(
         {"user_id": user_id},
         {"$set": {"is_approved": False, "verification_status": "rejected"}},
     )
@@ -441,11 +456,102 @@ async def suspend_user(user_id: str, admin: dict = Depends(require_admin)):
     return {"success": True}
 
 
+def _withdrawal_view(row: dict, live_referrer: dict | None = None) -> dict:
+    """Return a withdrawal row with the 10% fee split for the admin table.
+
+    Pending rows are evaluated against the current referral state, so a
+    deleted account immediately shows as platform-only. Settled rows keep the
+    amounts recorded when the payout was marked paid.
+    """
+    data = dict(row)
+    status = data.get("status")
+    gross = round(float(data.get("amount") or 0), 2)
+    stored_referrer = bool(data.get("referrer_id"))
+
+    if status in ("REJECTED", "FAILED"):
+        data.setdefault("commission_rate", get_settings().withdrawal_commission_rate)
+        data.setdefault("commission_amount", 0.0)
+        data.setdefault("payout_amount", 0.0)
+        data.setdefault("referral_bonus_percentage", get_settings().model_referral_bonus_percentage)
+        data.setdefault("referral_bonus_amount", 0.0)
+        data.setdefault("platform_commission_amount", 0.0)
+        data.setdefault("referral_status", "REFUNDED")
+        data.setdefault("potential_referral_bonus_amount", 0.0)
+        return data
+
+    settled = status in ("PAID", "PROCESSED")
+    legacy_paid = settled and data.get("commission_amount") is None
+    eligible = bool(live_referrer) if status == "PENDING" else stored_referrer
+    split = wallet_service.calculate_withdrawal_split(gross, eligible)
+
+    if legacy_paid:
+        # Paid before the 10% withdrawal commission existed. Do not reprice
+        # historical payouts; just show that no fee/referral was recorded.
+        data["commission_rate"] = 0.0
+        data["commission_amount"] = 0.0
+        data["payout_amount"] = gross
+        data["referral_bonus_percentage"] = 0.0
+        data["referral_bonus_amount"] = 0.0
+        data["platform_commission_amount"] = 0.0
+        data["referral_status"] = "LEGACY"
+        data["potential_referral_bonus_amount"] = 0.0
+        return data
+
+    for key in (
+        "commission_rate",
+        "commission_amount",
+        "payout_amount",
+        "referral_bonus_percentage",
+        "referral_bonus_amount",
+        "platform_commission_amount",
+    ):
+        if data.get(key) is None:
+            data[key] = split[key]
+    data["potential_referral_bonus_amount"] = split[
+        "potential_referral_bonus_amount"
+    ]
+
+    if live_referrer:
+        data["referrer_id"] = live_referrer.get("referrer_id")
+        data["referrer_name"] = live_referrer.get("referrer_name")
+
+    if status == "PENDING":
+        if live_referrer:
+            data["referral_status"] = "PENDING"
+            data["referral_bonus_amount"] = split["referral_bonus_amount"]
+            data["platform_commission_amount"] = split[
+                "platform_commission_amount"
+            ]
+        elif stored_referrer or data.get("referral_status") in (
+            "PENDING",
+            "RETRY_PENDING",
+        ):
+            data["referral_status"] = "CANCELLED"
+            data["referral_bonus_amount"] = 0.0
+            data["platform_commission_amount"] = split["commission_amount"]
+        else:
+            data["referral_status"] = "PLATFORM"
+            data["referral_bonus_amount"] = 0.0
+            data["platform_commission_amount"] = split["commission_amount"]
+    elif not data.get("referral_status"):
+        data["referral_status"] = "PAID" if stored_referrer else "PLATFORM"
+
+    return data
+
+
 @router.get("/withdrawals/pending")
 async def pending_withdrawals(admin: dict = Depends(require_admin)):
     db = get_db()
     items = await db.withdrawal_requests.find({"status": "PENDING"}, {"_id": 0}).to_list(100)
-    return {"success": True, "withdrawals": items}
+    refs = await model_referral_service.resolve_withdrawal_referrers(
+        [item.get("user_id") for item in items]
+    )
+    return {
+        "success": True,
+        "withdrawals": [
+            _withdrawal_view(item, refs.get(item.get("user_id"))) for item in items
+        ],
+    }
 
 
 @router.get("/withdrawals/processed")
@@ -456,7 +562,10 @@ async def processed_withdrawals(admin: dict = Depends(require_admin)):
         .sort("paid_at", -1)
         .to_list(200)
     )
-    return {"success": True, "withdrawals": items}
+    return {
+        "success": True,
+        "withdrawals": [_withdrawal_view(item) for item in items],
+    }
 
 
 @router.get("/withdrawals/failed")
@@ -467,7 +576,16 @@ async def failed_withdrawals(admin: dict = Depends(require_admin)):
         .sort("created_at", -1)
         .to_list(200)
     )
-    return {"success": True, "withdrawals": items}
+    return {
+        "success": True,
+        "withdrawals": [_withdrawal_view(item) for item in items],
+    }
+
+
+@router.get("/model-referrals")
+async def model_referrals_dashboard(admin: dict = Depends(require_admin)):
+    """Platform-wide model referral analytics and recent bonuses."""
+    return await model_referral_service.get_admin_model_referral_summary()
 
 
 @router.get("/withdrawals/increase-requests")
@@ -540,21 +658,133 @@ async def mark_paid(request_id: str, admin: dict = Depends(require_admin)):
     req = await db.withdrawal_requests.find_one({"request_id": request_id}, {"_id": 0})
     if not req:
         raise HTTPException(404, "Not found")
-    if req.get("status") != "PENDING":
-        return {"success": True, "message": "Already processed"}
-    await db.withdrawal_requests.update_one(
-        {"request_id": request_id, "status": "PENDING"},
-        {"$set": {"status": "PAID", "paid_at": datetime.now(timezone.utc), "paid_by": admin["user_id"]}},
+    gross = round(float(req.get("amount") or 0), 2)
+    current_status = req.get("status")
+    if current_status not in ("PENDING", "PAID", "PROCESSED"):
+        return {
+            "success": True,
+            "message": "Already processed",
+            "referral_bonus_paid": False,
+        }
+
+    now = datetime.now(timezone.utc)
+
+    # A new request carries a referral snapshot. Do not let a referral applied
+    # after the request retroactively earn a bonus on it. Legacy rows without
+    # the snapshot fall back to the live referral state.
+    has_snapshot = "referral_status" in req
+    current_referral = await model_referral_service.resolve_withdrawal_referrer(
+        req["user_id"]
     )
-    await _audit(admin["user_id"], "withdrawal_paid", {"request_id": request_id})
-    amount = req.get("amount")
-    await _notify_user(
-        req["user_id"],
-        "Withdrawal paid",
-        f"₹{amount} was sent to your UPI.",
-        "withdrawal_paid",
+    eligible_referral = (
+        current_referral
+        if (not has_snapshot or req.get("referrer_id"))
+        else None
     )
-    return {"success": True}
+
+    marker = None
+    if eligible_referral or req.get("referrer_id"):
+        # Pay the model referral bonus only for a completed payout. Idempotent
+        # per request id, so a retried admin action cannot double-credit.
+        try:
+            await model_referral_service.process_model_referral_bonus(
+                req["user_id"],
+                gross,
+                withdrawal_request_id=request_id,
+            )
+        except Exception:
+            logger.exception("Model referral bonus failed for withdrawal %s", request_id)
+        # A duplicate/retry returns False from the service but the marker is the
+        # source of truth. Check it so a retry never downgrades an already-paid
+        # bonus to the platform's full share.
+        marker = await db.model_referral_bonuses.find_one(
+            {"withdrawal_request_id": request_id}, {"_id": 0}
+        )
+
+    split = wallet_service.calculate_withdrawal_split(gross, bool(marker))
+    if marker:
+        referrer_id = marker.get("referrer_id")
+        referrer_name = marker.get("referrer_name") or req.get("referrer_name") or "Model"
+        bonus_paid = round(float(marker.get("bonus_amount") or 0), 2)
+        platform_share = round(split["commission_amount"] - bonus_paid, 2)
+        referral_status = "PAID"
+    elif eligible_referral:
+        referrer_id = eligible_referral.get("referrer_id")
+        referrer_name = eligible_referral.get("referrer_name") or "Model"
+        bonus_paid = 0.0
+        platform_share = split["commission_amount"]
+        referral_status = "RETRY_PENDING"
+    else:
+        referrer_id = req.get("referrer_id")
+        referrer_name = req.get("referrer_name")
+        bonus_paid = 0.0
+        platform_share = split["commission_amount"]
+        referral_status = (
+            "CANCELLED"
+            if req.get("referrer_id")
+            or req.get("referral_status") in ("PENDING", "RETRY_PENDING")
+            else "PLATFORM"
+        )
+
+    settlement = {
+        "commission_rate": split["commission_rate"],
+        "commission_amount": split["commission_amount"],
+        "payout_amount": split["payout_amount"],
+        "referral_bonus_percentage": split["referral_bonus_percentage"],
+        "referral_bonus_amount": bonus_paid,
+        "potential_referral_bonus_amount": split["potential_referral_bonus_amount"],
+        "platform_commission_amount": platform_share,
+        "referrer_id": referrer_id,
+        "referrer_name": referrer_name,
+        "referral_status": referral_status,
+        "settled_at": now,
+    }
+
+    if current_status == "PENDING":
+        await db.withdrawal_requests.update_one(
+            {"request_id": request_id, "status": "PENDING"},
+            {
+                "$set": {
+                    **settlement,
+                    "status": "PAID",
+                    "paid_at": now,
+                    "paid_by": admin["user_id"],
+                }
+            },
+        )
+        await _audit(admin["user_id"], "withdrawal_paid", {"request_id": request_id})
+        await _notify_user(
+            req["user_id"],
+            "Withdrawal paid",
+            (
+                f"₹{split['payout_amount']:.2f} was sent to your UPI after "
+                f"₹{split['commission_amount']:.2f} withdrawal commission."
+            ),
+            "withdrawal_paid",
+        )
+    else:
+        # Retry path for a payout already marked paid. This repairs a missing
+        # referral bonus without paying the creator twice.
+        await db.withdrawal_requests.update_one(
+            {"request_id": request_id},
+            {"$set": settlement},
+        )
+        await _audit(
+            admin["user_id"],
+            "withdrawal_paid_retry",
+            {"request_id": request_id},
+        )
+
+    return {
+        "success": True,
+        "message": "Already processed" if current_status != "PENDING" else "Marked paid",
+        "payout_amount": split["payout_amount"],
+        "commission_amount": split["commission_amount"],
+        "referral_bonus_paid": bool(marker),
+        "referral_bonus_amount": bonus_paid,
+        "platform_commission_amount": platform_share,
+        "referral_status": referral_status,
+    }
 
 
 @router.post("/withdrawals/{request_id}/reject")
@@ -820,7 +1050,14 @@ async def financial_dashboard(admin: dict = Depends(require_admin)):
     wd = await db.withdrawal_requests.aggregate(
         [
             {"$match": {"status": {"$in": ["PENDING", "PAID", "PROCESSED", "APPROVED"]}}},
-            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+            {
+                "$group": {
+                    "_id": None,
+                    "total": {
+                        "$sum": {"$ifNull": ["$payout_amount", "$amount"]}
+                    },
+                }
+            },
         ]
     ).to_list(1)
     total_withdrawals = round(wd[0]["total"], 2) if wd else 0.0
@@ -845,7 +1082,14 @@ async def financial_overview(admin: dict = Depends(require_admin)):
     payouts = await db.withdrawal_requests.aggregate(
         [
             {"$match": {"status": {"$in": ["PAID", "PROCESSED", "APPROVED"]}}},
-            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+            {
+                "$group": {
+                    "_id": None,
+                    "total": {
+                        "$sum": {"$ifNull": ["$payout_amount", "$amount"]}
+                    },
+                }
+            },
         ]
     ).to_list(1)
     total_payouts = round(payouts[0]["total"], 2) if payouts else 0.0

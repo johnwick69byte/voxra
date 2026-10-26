@@ -87,7 +87,7 @@ export const earningsAPI = {
 
 export const withdrawalAPI = {
   profile: () => api.get("/wallet/withdrawal/profile"),
-  requests: () => api.get("/withdrawal/requests"),
+  requests: () => api.get("/wallet/withdrawal/requests"),
   submit: (payload: {
     amount: number;
     upi_id: string;
@@ -100,7 +100,7 @@ export const withdrawalAPI = {
     };
   }) => api.post("/wallet/withdraw", payload),
   requestIncrease: (requested_max_amount: number, reason?: string) =>
-    api.post("/withdrawal/request-increase", { requested_max_amount, reason }),
+    api.post("/wallet/withdrawal/request-increase", { requested_max_amount, reason }),
 };
 
 export const callsAPI = {
@@ -131,6 +131,14 @@ export const callsAPI = {
 export const referralAPI = {
   overview: () => api.get("/profile/referral"),
   apply: (code: string) => api.post("/profile/referral/apply", { code }),
+};
+
+export const modelReferralAPI = {
+  overview: () => api.get("/model-referral/overview"),
+  apply: (code: string) => api.post("/model-referral/apply", { code }),
+  earnings: () => api.get("/model-referral/earnings"),
+  referrals: () => api.get("/model-referral/referrals"),
+  shareMessage: () => api.get("/model-referral/share-message"),
 };
 
 export const walletAPI = {

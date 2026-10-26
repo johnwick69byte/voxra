@@ -5,6 +5,64 @@ import { adminAPI } from "../services/api";
 const TABS = ["pending", "processed", "failed"] as const;
 type Tab = (typeof TABS)[number];
 
+function inr(n: any) {
+  return `₹${Number(n || 0).toFixed(2)}`;
+}
+
+function referralCell(w: any) {
+  if (w.status === "REJECTED") {
+    return <span style={{ color: "var(--muted)" }}>Refunded — no fee</span>;
+  }
+  if (w.referral_status === "LEGACY") {
+    return <span style={{ color: "var(--muted)" }}>Legacy payout — no fee recorded</span>;
+  }
+  if (w.referral_status === "REFUNDED") {
+    return <span style={{ color: "var(--muted)" }}>Refunded — no fee</span>;
+  }
+  if (w.referral_status === "RETRY_PENDING") {
+    return (
+      <>
+        <div>
+          {inr(w.potential_referral_bonus_amount || w.referral_bonus_amount)} →{" "}
+          {w.referrer_name || w.referrer_id} (retry pending)
+        </div>
+        <div style={{ color: "var(--muted)", fontSize: 12 }}>
+          Platform keeps {inr(w.platform_commission_amount)} until the bonus is paid
+        </div>
+      </>
+    );
+  }
+  if (w.referrer_id && w.referral_status !== "CANCELLED") {
+    return (
+      <>
+        <div>
+          {inr(w.referral_bonus_amount)} → {w.referrer_name || w.referrer_id}
+          {w.referral_status === "PAID" ? " (paid)" : ""}
+        </div>
+        <div style={{ color: "var(--muted)", fontSize: 12 }}>
+          Platform keeps {inr(w.platform_commission_amount)}
+        </div>
+      </>
+    );
+  }
+  if (w.referral_status === "CANCELLED") {
+    return (
+      <>
+        <div>Platform keeps {inr(w.commission_amount)}</div>
+        <div style={{ color: "var(--muted)", fontSize: 12 }}>
+          Referral cancelled — account deleted or unavailable
+        </div>
+      </>
+    );
+  }
+  return (
+    <>
+      <div>Platform keeps {inr(w.commission_amount)}</div>
+      <div style={{ color: "var(--muted)", fontSize: 12 }}>No active referral</div>
+    </>
+  );
+}
+
 export default function Withdrawals() {
   const [tab, setTab] = useState<Tab>("pending");
   const [items, setItems] = useState<any[]>([]);
@@ -28,8 +86,8 @@ export default function Withdrawals() {
   const markPaid = async (id: string) => {
     setBusy(id);
     try {
-      await adminAPI.markPaid(id);
-      toast.success("Marked paid");
+      const res = await adminAPI.markPaid(id);
+      toast.success(`Paid ${inr(res.data.payout_amount)} to the creator`);
       load();
     } finally {
       setBusy(null);
@@ -41,6 +99,21 @@ export default function Withdrawals() {
     try {
       await adminAPI.rejectWd(id);
       toast.success("Rejected & refunded");
+      load();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const retryBonus = async (id: string) => {
+    setBusy(id);
+    try {
+      const res = await adminAPI.markPaid(id);
+      toast.success(
+        res.data.referral_bonus_paid
+          ? `Referral bonus paid: ${inr(res.data.referral_bonus_amount)}`
+          : `No bonus paid (${res.data.referral_status || "not applicable"})`
+      );
       load();
     } finally {
       setBusy(null);
@@ -63,7 +136,11 @@ export default function Withdrawals() {
   return (
     <div>
       <h1 className="page-title">Withdrawals</h1>
-      <p className="page-sub">Mark paid after UPI transfer, or reject to refund earnings.</p>
+      <p className="page-sub">
+        Creators pay a 10% withdrawal commission. If the creator was referred, 5% goes
+        to the referrer and 5% to the platform; otherwise the platform keeps all 10%.
+        Send the creator the payout amount, not the requested amount.
+      </p>
       <div className="row" style={{ marginBottom: 16 }}>
         {TABS.map((t) => (
           <button key={t} className={tab === t ? "btn" : "btn ghost"} onClick={() => setTab(t)}>
@@ -77,7 +154,10 @@ export default function Withdrawals() {
             <tr>
               <th>Request</th>
               <th>User</th>
-              <th>Amount</th>
+              <th>Requested</th>
+              <th>Payout</th>
+              <th>Fee (10%)</th>
+              <th>Referral (5%) / platform</th>
               <th>UPI</th>
               <th>Status</th>
               <th></th>
@@ -88,7 +168,14 @@ export default function Withdrawals() {
               <tr key={w.request_id}>
                 <td>{w.request_id}</td>
                 <td>{w.user_id}</td>
-                <td>₹{w.amount}</td>
+                <td>{inr(w.amount)}</td>
+                <td>
+                  {w.status === "REJECTED" ? "—" : inr(w.payout_amount)}
+                </td>
+                <td>
+                  {w.status === "REJECTED" ? "—" : inr(w.commission_amount)}
+                </td>
+                <td>{referralCell(w)}</td>
                 <td>{w.upi_id}</td>
                 <td><span className="badge warn">{w.status}</span></td>
                 <td className="row">
@@ -103,15 +190,20 @@ export default function Withdrawals() {
                     </>
                   )}
                   {tab === "processed" && (
-                    <button className="btn danger" disabled={busy === w.request_id} onClick={() => markError(w.request_id)}>
-                      Mark failed
-                    </button>
+                    <>
+                      <button className="btn ghost" disabled={busy === w.request_id} onClick={() => retryBonus(w.request_id)}>
+                        Retry bonus
+                      </button>
+                      <button className="btn danger" disabled={busy === w.request_id} onClick={() => markError(w.request_id)}>
+                        Mark failed
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
             ))}
             {!items.length && (
-              <tr><td colSpan={6} style={{ color: "var(--muted)" }}>Nothing here</td></tr>
+              <tr><td colSpan={9} style={{ color: "var(--muted)" }}>Nothing here</td></tr>
             )}
           </tbody>
         </table>

@@ -103,12 +103,26 @@ export default function CancellationRefundPolicyPage() {
         remitted to the creator's UPI ID after review. Fans cannot spend, transfer, or request a refund
         of creator earnings.
       </p>
+      <p>
+        A 10% withdrawal commission is deducted from the gross amount requested. The creator receives the
+        remaining 90%. If the creator was referred by another creator, 5% of the gross withdrawal is paid
+        to the referrer and the platform retains 5%; otherwise the platform retains the full 10%. If the
+        referred creator or the referrer has deleted their account before the payout is settled, no
+        referral share is payable and the platform retains the full 10%. The withdrawal commission is a
+        service charge and is not refundable after the payout is marked paid.
+      </p>
 
       <h2>8. Referral Bonuses</h2>
       <p>
-        Referral bonuses credited to your spendable balance are promotional credits. They are not refundable,
-        not transferable, and cannot be withdrawn as cash. They can only be used to pay for live sessions
-        and gifts on the platform.
+        Friend-invite bonuses credited to a fan's spendable balance are promotional credits. They are not
+        refundable, not transferable, and cannot be withdrawn as cash. They can only be used to pay for
+        live sessions and gifts on the platform.
+      </p>
+      <p>
+        Creator-to-creator referral bonuses are 5% of the gross withdrawal amount of a referred creator,
+        paid from the 10% withdrawal commission. They are credited to the referrer's earnings balance and
+        are treated as creator earnings. They follow the same payout review, minimum withdrawal, and
+        settlement rules as other creator earnings and are not a refundable charge.
       </p>
 
       <h2>9. Legal Jurisdiction</h2>
@@ -126,7 +140,7 @@ export default function CancellationRefundPolicyPage() {
         <br />
         <strong>Owner:</strong> Gandapodi V Saathvik
       </p>
-      <p className="meta">Last updated: 25 October 2026. This policy is subject to change.</p>
+      <p className="meta">Last updated: 26 October 2026. This policy is subject to change.</p>
     </main>
   );
 }

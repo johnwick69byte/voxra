@@ -21,6 +21,36 @@ def calculate_commission(amount: float) -> dict:
     }
 
 
+def calculate_withdrawal_split(amount: float, referral_eligible: bool = False) -> dict:
+    """Split a gross withdrawal into payout, referral bonus, and platform share.
+
+    The creator requests a gross amount from their earnings. A 10% withdrawal
+    commission is retained. When the creator has an active referrer, 5% of the
+    gross withdrawal is credited to that referrer and the platform keeps the
+    remaining 5%; otherwise the full 10% belongs to the platform.
+    """
+    settings = get_settings()
+    gross = round(float(amount or 0), 2)
+    rate = float(settings.withdrawal_commission_rate)
+    commission = round(gross * rate, 2)
+    payout = max(0.0, round(gross - commission, 2))
+    bonus_percentage = float(settings.model_referral_bonus_percentage)
+    potential_bonus = round(gross * (bonus_percentage / 100.0), 2)
+    # Never let a referral payout exceed the commission actually collected.
+    bonus = min(potential_bonus, commission) if referral_eligible else 0.0
+    platform = round(commission - bonus, 2)
+    return {
+        "gross_amount": gross,
+        "commission_rate": rate,
+        "commission_amount": commission,
+        "payout_amount": payout,
+        "referral_bonus_percentage": bonus_percentage,
+        "potential_referral_bonus_amount": potential_bonus,
+        "referral_bonus_amount": bonus,
+        "platform_commission_amount": platform,
+    }
+
+
 async def record_platform_commission(
     *,
     commission_type: str,

@@ -166,7 +166,7 @@ export default function LandingPage() {
           <article className="card">
             <h3>A wallet that is only for spending</h3>
             <p>
-              Recharges and referral bonuses sit in spendable balance. That balance pays for minutes and
+              Recharges and friend-invite bonuses sit in spendable balance. That balance pays for minutes and
               gifts. It is separate from any creator earnings, so the two never get mixed.
             </p>
           </article>
@@ -239,7 +239,7 @@ export default function LandingPage() {
                 <td>Payout</td>
                 <td>—</td>
                 <td>Invoice or platform delay</td>
-                <td>Earnings wallet, withdraw to UPI from ₹100</td>
+                <td>Earnings wallet, withdraw to UPI after review</td>
               </tr>
             </tbody>
           </table>

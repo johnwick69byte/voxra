@@ -317,10 +317,21 @@ async def verify_otp(
     }
 
 
-async def generate_referral_code() -> str:
+async def generate_referral_code(
+    *,
+    prefix: str = "",
+    length: int = 8,
+    field: str = "referral_code",
+) -> str:
+    """Generate a unique user or model referral code.
+
+    Defaults preserve the original 8-character user referral codes. Model
+    referrals pass ``prefix=MDL`` plus the shorter configured length and check
+    the ``model_referral_code`` field for uniqueness.
+    """
     db = get_db()
     while True:
-        code = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        exists = await db.users.find_one({"referral_code": code})
+        code = f"{prefix}{''.join(random.choices(string.ascii_uppercase + string.digits, k=length))}"
+        exists = await db.users.find_one({field: code})
         if not exists:
             return code

@@ -36,6 +36,8 @@ export default function WithdrawScreen() {
   const [maxAmount, setMaxAmount] = useState(25000);
   const [maxPerDay, setMaxPerDay] = useState(2);
   const [today, setToday] = useState(0);
+  const [commissionRate, setCommissionRate] = useState(0.1);
+  const [minAmount, setMinAmount] = useState(250);
 
   const load = useCallback(async () => {
     try {
@@ -44,6 +46,8 @@ export default function WithdrawScreen() {
       setMaxAmount(p.data.max_withdraw_amount || 25000);
       setMaxPerDay(p.data.max_requests_per_day || 2);
       setToday(p.data.requests_today || 0);
+      setMinAmount(p.data.min_withdraw_amount || 250);
+      setCommissionRate(p.data.withdrawal_commission_rate ?? 0.1);
       if (p.data.upi_id) setUpi(p.data.upi_id);
       if (p.data.bank_details) setBank({ ...EMPTY_BANK, ...p.data.bank_details });
       setRequests(r.data.requests || []);
@@ -58,10 +62,15 @@ export default function WithdrawScreen() {
     }, [load])
   );
 
+  const gross = Number(amount) || 0;
+  const commission = Math.round(gross * commissionRate * 100) / 100;
+  const payoutAmount = Math.max(0, Math.round((gross - commission) * 100) / 100);
+  const commissionPercent = Math.round(commissionRate * 1000) / 10;
+
   const submit = async () => {
     const amt = Number(amount);
-    if (!amt || amt < 250) {
-      Toast.show({ type: "error", text1: "Minimum withdrawal ₹250" });
+    if (!amt || amt < minAmount) {
+      Toast.show({ type: "error", text1: `Minimum withdrawal ₹${minAmount}` });
       return;
     }
     if (amt > maxAmount) {
@@ -78,13 +87,17 @@ export default function WithdrawScreen() {
     }
     setLoading(true);
     try {
-      await withdrawalAPI.submit({
+      const res = await withdrawalAPI.submit({
         amount: amt,
         upi_id: upi.trim(),
         account_name: bank.account_holder_name,
         bank_details: bank,
       });
-      Toast.show({ type: "success", text1: "Withdrawal requested" });
+      Toast.show({
+        type: "success",
+        text1: "Withdrawal requested",
+        text2: `Payout after 10% commission: ${inr(res.data.payout_amount)}`,
+      });
       setAmount("");
       await load();
     } catch (e: any) {
@@ -108,7 +121,7 @@ export default function WithdrawScreen() {
           </AppText>
           <AppText style={styles.balance}>{inr(earnings)}</AppText>
           <AppText variant="caption" color="rgba(243,239,232,0.7)">
-            Minimum ₹250 · Maximum ₹{maxAmount}
+            Minimum ₹{minAmount} · Maximum ₹{maxAmount}
           </AppText>
         </View>
 
@@ -121,6 +134,20 @@ export default function WithdrawScreen() {
           value={amount}
           onChangeText={setAmount}
         />
+        <View style={styles.feeCard}>
+          <View style={styles.feeRow}>
+            <AppText variant="caption">Withdrawal commission ({commissionPercent}%)</AppText>
+            <AppText style={styles.feeValue}>-{inr(commission)}</AppText>
+          </View>
+          <View style={styles.feeRow}>
+            <AppText style={styles.feeNetLabel}>You receive</AppText>
+            <AppText style={styles.feeNetValue}>{inr(payoutAmount)}</AppText>
+          </View>
+          <AppText variant="caption" style={styles.feeNote}>
+            The commission is retained by Simple Talk. If you were referred by another
+            creator, 5% of the withdrawal amount is paid to them from that commission.
+          </AppText>
+        </View>
 
         <AppText variant="label" style={styles.section}>UPI ID</AppText>
         <TextInput
@@ -172,6 +199,13 @@ export default function WithdrawScreen() {
             <View key={r.request_id} style={styles.reqCard}>
               <View style={{ flex: 1 }}>
                 <AppText style={styles.reqAmt}>{inr(r.amount)}</AppText>
+                <AppText variant="caption">
+                  {r.status === "REJECTED"
+                    ? "Returned to earnings"
+                    : `${r.status === "PAID" ? "Paid" : "Payout"} ${inr(
+                        r.payout_amount ?? Number(r.amount || 0) * (1 - commissionRate)
+                      )} after ${inr(r.commission_amount ?? Number(r.amount || 0) * commissionRate)} fee`}
+                </AppText>
                 <AppText variant="caption">{r.upi_id}</AppText>
                 {r.created_at ? (
                   <AppText variant="caption">{new Date(r.created_at).toLocaleDateString()}</AppText>
@@ -228,6 +262,39 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.body,
     fontSize: 16,
     marginTop: 8,
+  },
+  feeCard: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface,
+    padding: 14,
+  },
+  feeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  feeValue: {
+    fontFamily: theme.font.bodyBold,
+    color: theme.colors.text,
+    fontSize: 15,
+  },
+  feeNetLabel: {
+    fontFamily: theme.font.bodyBold,
+    color: theme.colors.text,
+    fontSize: 16,
+  },
+  feeNetValue: {
+    fontFamily: theme.font.display,
+    color: theme.colors.success,
+    fontSize: 22,
+  },
+  feeNote: {
+    marginTop: 6,
+    lineHeight: 18,
   },
   reqCard: {
     flexDirection: "row",

@@ -10,7 +10,7 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
 import { authAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
@@ -36,6 +36,7 @@ function formatPhone(raw: string) {
 
 export default function LoginScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ ref?: string; model_ref?: string }>();
   const setSession = useAuthStore((s) => s.setSession);
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -122,7 +123,19 @@ export default function LoginScreen() {
     try {
       const res = await authAPI.verifyOtp(digits, otpDigits, verificationId);
       await setSession(res.data.token, res.data.user);
-      router.replace("/");
+      const refCode = typeof params.ref === "string" ? params.ref : "";
+      const modelRefCode = typeof params.model_ref === "string" ? params.model_ref : "";
+      if (!res.data.user?.profile_complete && (refCode || modelRefCode)) {
+        router.replace({
+          pathname: "/(auth)/complete-profile",
+          params: {
+            ...(refCode ? { ref: refCode } : {}),
+            ...(modelRefCode ? { model_ref: modelRefCode } : {}),
+          },
+        });
+      } else {
+        router.replace("/");
+      }
     } catch (e: any) {
       const status = e?.response?.status;
       Toast.show({

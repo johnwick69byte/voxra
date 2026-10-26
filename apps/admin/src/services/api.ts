@@ -37,6 +37,7 @@ export const adminAPI = {
   withdrawals: () => api.get("/admin/withdrawals/pending"),
   processedWithdrawals: () => api.get("/admin/withdrawals/processed"),
   failedWithdrawals: () => api.get("/admin/withdrawals/failed"),
+  modelReferrals: () => api.get("/admin/model-referrals"),
   markPaid: (id: string, admin_notes?: string) =>
     api.post(`/admin/withdrawals/${id}/mark-paid`, { admin_notes }),
   rejectWd: (id: string) => api.post(`/admin/withdrawals/${id}/reject`),

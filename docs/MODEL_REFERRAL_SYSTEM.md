@@ -3,6 +3,8 @@
 ## Overview
 Introduce a **Model Referral Program** exclusively for creators (models) to refer other models. This is separate from the existing user referral system.
 
+> **Implementation status (Oct 2026):** Shipped. A **10% withdrawal commission** is deducted from the creator's gross withdrawal request. If the withdrawing creator has an active referrer, **5% of the gross withdrawal** is credited to the referrer's earnings wallet and the platform keeps the other 5%; otherwise the platform keeps the full 10%. If the referred creator's account or the referrer's account has been deleted before settlement, no referral share is payable. The bonus is idempotent per withdrawal request and is triggered when an admin marks the payout paid.
+
 ---
 
 ## Business Logic
@@ -19,9 +21,10 @@ Introduce a **Model Referral Program** exclusively for creators (models) to refe
 - Referrer must be an approved creator (`is_approved: true`, `verification_status: "approved"`)
 
 ### Trigger
-- **Trigger**: When a referred model makes a withdrawal
-- **Bonus Calculation**: 5% of withdrawal amount → credited to referrer's **earning wallet** (not spendable balance)
-- **Frequency**: Every withdrawal by referred model
+- **Trigger**: When an admin marks a referred model's withdrawal as **paid**
+- **Bonus Calculation**: 5% of the gross withdrawal amount, paid out of the 10% withdrawal commission; the platform keeps the remaining 5%
+- **No Referral**: If there is no active referrer, or either account was deleted, the platform keeps the full 10%
+- **Frequency**: Every paid withdrawal by the referred model
 
 ---
 
@@ -84,7 +87,8 @@ GET  /api/model-referral/referrals         - List of referred models with detail
 - `POST /api/auth/complete-profile` - Accept `model_referral_code` for creators
 
 ### 3. Updated Withdrawal Endpoint
-- `POST /api/wallet/withdraw` - Trigger model referral bonus on successful withdrawal
+- `POST /api/wallet/withdraw` - Records the 10% commission split and potential referrer on the request
+- `POST /api/admin/withdrawals/{id}/mark-paid` - Pays the 5% referral bonus and finalizes the platform share
 
 ---
 
@@ -148,7 +152,7 @@ async def apply_model_referral_code(user: dict, code: str) -> dict:
     """Apply model referral code during/after signup."""
     
 async def process_model_referral_bonus(withdrawal_user_id: str, withdrawal_amount: float):
-    """Called when a model makes a withdrawal - credit referrer 5%."""
+    """Called when admin marks a referred model's withdrawal paid - credit referrer 5%."""
 ```
 
 ### 2. Router (`app/routers/model_referral.py`)
@@ -167,15 +171,25 @@ async def model_referral_list(user: dict = Depends(require_creator)):
 ```
 
 ### 3. Update Withdrawal Endpoint
-In `wallet_router.py` withdraw endpoint, after successful withdrawal:
+In `app/routers/wallet.py`, the request stores the gross amount, 10% commission, 90% payout, and the potential referrer:
+
 ```python
-# After successful withdrawal for a creator
-if user["user_type"] == "creator":
-    await model_referral_service.process_model_referral_bonus(
-        user["user_id"], 
-        withdrawal_amount
-    )
+# At request time
+split = wallet_service.calculate_withdrawal_split(gross, referral_eligible=bool(referrer))
+# amount = gross, payout_amount = 90%, commission_amount = 10%
 ```
+
+The bonus itself is paid only when admin marks the payout paid:
+
+```python
+await model_referral_service.process_model_referral_bonus(
+    request["user_id"],
+    request["amount"],
+    withdrawal_request_id=request["request_id"],
+)
+```
+
+If either account is deleted, or there is no referrer, the platform records the full 10% as its share.
 
 ---
 
@@ -293,7 +307,8 @@ I've earned ₹{earnings} referring models. You can too!
 
 ## Configuration (config.py additions)
 ```python
-model_referral_bonus_percentage: float = 5.0
+withdrawal_commission_rate: float = 0.10  # 10% charged on the gross withdrawal
+model_referral_bonus_percentage: float = 5.0  # 5% of gross, paid from the commission
 model_referral_min_withdrawal: float = 100.0  # Minimum withdrawal to trigger bonus
 model_referral_code_prefix: str = "MDL"
 model_referral_code_length: int = 6
@@ -304,25 +319,25 @@ model_referral_code_length: int = 6
 ## Edge Cases Handled
 1. **Self-referral prevention**: User cannot use own code
 2. **Duplicate prevention**: Can't apply code if already referred
-4. **Self-referral prevention**: Can't use own code
-5. **Inactive referrer**: If referrer becomes inactive, bonus still paid (earned)
+3. **Circular referrals**: A→B→A prevented by checking referral chain
+4. **Account deletion**: If the referred creator or the referrer has deleted their account before settlement, no referral share is payable and the platform keeps the full 10%.
 5. **Fraud prevention**: Minimum withdrawal ₹100 to trigger bonus
-6. **Circular referrals**: A→B→A prevented by checking referral chain
-7. **Deactivated models**: Bonus still paid if referrer was active at referral time
+6. **Retry safety**: A bonus is paid at most once per withdrawal request
+7. **Commission cap**: The referral share can never exceed the 10% commission collected
 
 ---
 
 ## Testing Checklist
-- [ ] Model A refers Model B → B withdraws ₹1000 → A gets ₹50
-- [ ] Model B referred by A → B withdraws ₹50 → No bonus (below ₹100 minimum)
-- [ ] Self-referral blocked
-- [ ] Inactive referrer still gets bonus
-- [ ] Multiple referrals tracked correctly
-- [ ] Admin dashboard shows correct totals
-- [ ] Transaction history shows MODEL_REFERRAL_BONUS type
-- [ ] Admin dashboard shows correct totals
-- [ ] Push notifications sent on bonus credit
-- [ ] Deep link with referral code works from cold start
+- [x] Model A refers Model B → B withdraws ₹1000 → B receives ₹900, A gets ₹50, platform keeps ₹50
+- [x] B withdraws ₹1000 with no referrer → B receives ₹900, platform keeps ₹100
+- [x] Deleted referred account or referrer account → no bonus, platform keeps ₹100
+- [x] Model B referred by A → B withdraws ₹50 → No bonus (below the ₹100 bonus threshold)
+- [x] Self-referral blocked
+- [x] Multiple referrals tracked correctly
+- [x] Admin dashboard shows correct totals and split
+- [x] Transaction history shows MODEL_REFERRAL_BONUS type
+- [ ] Push notifications sent on bonus credit (device test)
+- [ ] Deep link with referral code works from cold start (device test)
 
 ---
 

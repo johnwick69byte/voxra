@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 from app.core.rate_limit import check_rate_limit
 from app.core.security import require_user, require_creator
 from app.models.schemas import RechargeInitiateRequest, WithdrawalRequest, WithdrawalIncreaseRequest
-from app.services import cashfree_service, payment_service, wallet_service
+from app.services import cashfree_service, model_referral_service, payment_service, wallet_service
 from app.core.database import get_db
 from app.core.config import get_settings
 from datetime import datetime, timezone
@@ -363,9 +363,10 @@ async def verify_pending(request: Request, user: dict = Depends(require_user)):
 async def withdraw(body: WithdrawalRequest, user: dict = Depends(require_creator)):
     MIN_WITHDRAW = 250.0
     MAX_WITHDRAW = 25000.0
-    if body.amount < MIN_WITHDRAW:
+    gross = round(float(body.amount or 0), 2)
+    if gross < MIN_WITHDRAW:
         raise HTTPException(400, f"Minimum withdrawal ₹{MIN_WITHDRAW:.0f}")
-    if body.amount > MAX_WITHDRAW:
+    if gross > MAX_WITHDRAW:
         raise HTTPException(400, f"Maximum withdrawal ₹{MAX_WITHDRAW:.0f}")
 
     upi = (body.upi_id or "").strip()
@@ -393,14 +394,23 @@ async def withdraw(body: WithdrawalRequest, user: dict = Depends(require_creator
         )
 
     wallet = await wallet_service.get_wallet(user["user_id"])
-    if wallet.get("earnings_balance", 0) < body.amount:
+    if wallet.get("earnings_balance", 0) < gross:
         raise HTTPException(402, "Insufficient earnings balance")
 
-    # Hold funds atomically from earnings_balance only.
+    # The referrer is payable only if both accounts still exist. The final
+    # eligibility is checked again when admin marks the payout paid.
+    referral = await model_referral_service.resolve_withdrawal_referrer(user["user_id"])
+    split = wallet_service.calculate_withdrawal_split(
+        gross, referral_eligible=bool(referral)
+    )
+
+    # Hold the gross amount atomically from earnings_balance. The creator is
+    # paid the net payout; the 10% commission stays with the platform (and is
+    # shared with the referrer when applicable).
     updated = await db.wallets.find_one_and_update(
-        {"user_id": user["user_id"], "earnings_balance": {"$gte": body.amount}},
+        {"user_id": user["user_id"], "earnings_balance": {"$gte": gross}},
         {
-            "$inc": {"earnings_balance": -body.amount},
+            "$inc": {"earnings_balance": -gross},
             "$set": {"updated_at": now},
         },
         return_document=True,
@@ -410,11 +420,22 @@ async def withdraw(body: WithdrawalRequest, user: dict = Depends(require_creator
 
     req_id = f"wd_{uuid.uuid4().hex[:12]}"
     bank_dict = bank.model_dump()
+    referrer = referral or {}
     await db.withdrawal_requests.insert_one(
         {
             "request_id": req_id,
             "user_id": user["user_id"],
-            "amount": body.amount,
+            "amount": split["gross_amount"],
+            "commission_rate": split["commission_rate"],
+            "commission_amount": split["commission_amount"],
+            "payout_amount": split["payout_amount"],
+            "referral_bonus_percentage": split["referral_bonus_percentage"],
+            "referral_bonus_amount": split["referral_bonus_amount"],
+            "potential_referral_bonus_amount": split["potential_referral_bonus_amount"],
+            "platform_commission_amount": split["platform_commission_amount"],
+            "referrer_id": referrer.get("referrer_id"),
+            "referrer_name": referrer.get("referrer_name"),
+            "referral_status": "PENDING" if referral else "PLATFORM",
             "withdrawal_method": "BANK_AND_UPI",
             "upi_id": upi,
             "bank_details": bank_dict,
@@ -426,9 +447,18 @@ async def withdraw(body: WithdrawalRequest, user: dict = Depends(require_creator
     await wallet_service.insert_transaction(
         user_id=user["user_id"],
         tx_type="WITHDRAW_HOLD",
-        amount=body.amount,
-        description="Withdrawal requested",
-        metadata={"request_id": req_id, "upi_id": upi},
+        amount=split["gross_amount"],
+        description=(
+            f"Withdrawal requested — ₹{split['payout_amount']:.2f} payout "
+            f"after ₹{split['commission_amount']:.2f} commission"
+        ),
+        metadata={
+            "request_id": req_id,
+            "upi_id": upi,
+            "gross_amount": split["gross_amount"],
+            "payout_amount": split["payout_amount"],
+            "commission_amount": split["commission_amount"],
+        },
         transaction_id=f"tx_withdraw_{req_id}",
     )
     # Save payout details on the profile for next-time prefill.
@@ -440,6 +470,12 @@ async def withdraw(body: WithdrawalRequest, user: dict = Depends(require_creator
     return {
         "success": True,
         "request_id": req_id,
+        "amount": split["gross_amount"],
+        "commission_rate": split["commission_rate"],
+        "commission_amount": split["commission_amount"],
+        "payout_amount": split["payout_amount"],
+        "referral_bonus_amount": split["referral_bonus_amount"],
+        "platform_commission_amount": split["platform_commission_amount"],
         "requests_today": today_count + 1,
         "max_requests_per_day": max_requests,
     }
@@ -464,6 +500,9 @@ async def withdrawal_profile(user: dict = Depends(require_creator)):
         "max_withdraw_amount": (profile or {}).get("max_withdraw_amount", 25000),
         "max_requests_per_day": int((profile or {}).get("max_withdraw_requests", 2) or 2),
         "requests_today": today_count,
+        "min_withdraw_amount": 250,
+        "withdrawal_commission_rate": get_settings().withdrawal_commission_rate,
+        "referral_bonus_percentage": get_settings().model_referral_bonus_percentage,
     }
 
 

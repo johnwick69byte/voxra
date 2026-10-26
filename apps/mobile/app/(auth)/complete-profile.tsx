@@ -8,7 +8,7 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
 import { authAPI } from "../../src/services/api";
 import { useAuthStore } from "../../src/store/authStore";
@@ -22,12 +22,18 @@ type Errors = Record<string, string>;
 
 export default function CompleteProfile() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ ref?: string; model_ref?: string }>();
   const { setSession, token, refreshMe } = useAuthStore();
   const [userType, setUserType] = useState<"user" | "creator">("user");
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
-  const [referral, setReferral] = useState("");
+  const [referral, setReferral] = useState(
+    typeof params.ref === "string" ? params.ref : ""
+  );
+  const [modelReferral, setModelReferral] = useState(
+    typeof params.model_ref === "string" ? params.model_ref : ""
+  );
   const [bio, setBio] = useState("");
   const [gender, setGender] = useState<string>("Female");
   const [category, setCategory] = useState("");
@@ -95,6 +101,7 @@ export default function CompleteProfile() {
         name: name.trim(),
         username: isCreator ? username.trim().toLowerCase() : username.trim() || undefined,
         referral_code: referral.trim() || undefined,
+        model_referral_code: isCreator ? modelReferral.trim() || undefined : undefined,
         user_type: userType,
         bio: isCreator ? bio.trim() || undefined : undefined,
         gender: isCreator ? gender : undefined,
@@ -111,10 +118,15 @@ export default function CompleteProfile() {
     } catch (e: any) {
       const detail = e?.response?.data?.detail;
       const text = typeof detail === "string" ? detail : "Could not save profile";
-      const referralHit = /referral/i.test(text);
-      if (referralHit) setErrors((prev) => ({ ...prev, referral: text }));
-      else if (/username/i.test(text)) setErrors((prev) => ({ ...prev, username: text }));
-      else Toast.show({ type: "error", text1: text });
+      if (/model referral/i.test(text)) {
+        setErrors((prev) => ({ ...prev, modelReferral: text }));
+      } else if (/referral/i.test(text)) {
+        setErrors((prev) => ({ ...prev, referral: text }));
+      } else if (/username/i.test(text)) {
+        setErrors((prev) => ({ ...prev, username: text }));
+      } else {
+        Toast.show({ type: "error", text1: text });
+      }
     } finally {
       setLoading(false);
     }
@@ -245,6 +257,19 @@ export default function CompleteProfile() {
             placeholder="ABCD1234"
           />
           {errors.referral ? <FieldError text={errors.referral} /> : null}
+
+          {isCreator ? (
+            <>
+              <Input
+                label="Model referral code (optional)"
+                autoCapitalize="characters"
+                value={modelReferral}
+                onChangeText={setModelReferral}
+                placeholder="MDL123456"
+              />
+              {errors.modelReferral ? <FieldError text={errors.modelReferral} /> : null}
+            </>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </OnboardingChrome>

@@ -9,7 +9,9 @@
 | Key | Value |
 |-----|--------|
 | `BACKEND_URL` | `https://voxra-dkfe.onrender.com` |
-| `TRUSTOPE_REDIRECT_URL` | `https://voxra-dkfe.onrender.com/api/wallet/recharge/return` |
+| `PAYQ_USER_TOKEN` | merchant API token from the PayQ dashboard (secret) |
+| `PAYQ_WEBHOOK_SECRET` | separate Webhook Secret from PayQ API Setup (secret) |
+| `PAYQ_RETURN_URL` | `https://voxra-dkfe.onrender.com/api/wallet/recharge/return` (optional; this is the fallback) |
 | `ENVIRONMENT` | `production` |
 | `ALLOW_ADMIN_BOOTSTRAP` | `false` (set `true` only once to create first admin, then off) |
 | `DEV_OTP_CODE` | unused — the dev OTP `7723` is hardcoded in `auth_service.py` and works in all environments |
@@ -17,12 +19,13 @@
 | `SOCKETIO_CORS_ORIGINS` | `*` |
 | `FIREBASE_CREDENTIALS_PATH` | `/etc/secrets/firebase-adminsdk.json` (if using Secret File) |
 
-Also ensure these match your local `.env`: Mongo, Upstash Redis (`REDIS_URL` and/or Upstash REST pair), JWT secrets, Agora, MessageCentral, ImageKit, Trustope when ready.
+Also ensure these match your local `.env`: Mongo, Upstash Redis (`REDIS_URL` and/or Upstash REST pair), JWT secrets, Agora, MessageCentral, ImageKit, and PayQ.
 
 After changing env vars → **Manual Deploy** / restart the service.
 
-## Trustope webhook (when payments enabled)
-`https://voxra-dkfe.onrender.com/api/wallet/recharge/webhook`
+## PayQ webhook
+Set this URL in the PayQ dashboard: `https://voxra-dkfe.onrender.com/api/wallet/recharge/webhook`
+The same page's **Webhook Secret** must be stored as `PAYQ_WEBHOOK_SECRET`.
 
 ## Clients (already updated locally)
 - Mobile: `EXPO_PUBLIC_API_URL=https://voxra-dkfe.onrender.com/api`

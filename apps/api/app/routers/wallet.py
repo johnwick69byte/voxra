@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 from app.core.rate_limit import check_rate_limit
 from app.core.security import require_user, require_creator
 from app.models.schemas import RechargeInitiateRequest, WithdrawalRequest, WithdrawalIncreaseRequest
-from app.services import kwikupi_service, model_referral_service, payment_service, wallet_service
+from app.services import model_referral_service, payment_service, payq_service, wallet_service
 from app.core.database import get_db
 from app.core.config import get_settings
 from datetime import datetime, timedelta, timezone
@@ -33,7 +33,7 @@ async def packages(user: dict = Depends(require_user)):
 async def recharge_page(token: str = ""):
     """
     Backend-rendered recharge page opened by the app in a browser/webview.
-    Shows packs plus a custom amount and starts a live KwikUPI payment.
+    Shows packs plus a custom amount and starts a live PayQ payment.
     """
     from app.core.security import decode_token
 
@@ -84,7 +84,7 @@ async def recharge_page(token: str = ""):
 
 @router.post("/recharge/session")
 async def recharge_session(request: Request):
-    """Browser-side handoff: JWT in body, start a live KwikUPI order, return its URL."""
+    """Browser-side handoff: JWT in body, start a live PayQ order, return its URL."""
     from app.core.security import decode_token
 
     try:
@@ -108,7 +108,7 @@ async def recharge_session(request: Request):
     db = get_db()
     user = await db.users.find_one(
         {"user_id": payload["sub"]},
-        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "deleted": 1, "is_suspended": 1},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "phone": 1, "deleted": 1, "is_suspended": 1},
     )
     if not user or user.get("deleted"):
         raise HTTPException(404, "User not found")
@@ -294,14 +294,14 @@ def _recharge_page_html(*, token: str, balance: float, packs: str, name: str) ->
         <input id="custom" class="custom-input" type="number" inputmode="decimal" step="0.01"
           placeholder="Minimum ₹{min_amount:.0f}" min="{min_amount:.2f}" max="{max_amount:.2f}">
       </div>
-      <div class="hint">UPI payment via KwikUPI. A {commission_pct:.0f}% fee is deducted, so {credit_pct:.0f}% of the amount you pay is added to your wallet.</div>
+      <div class="hint">UPI payment via PayQ. A {commission_pct:.0f}% fee is deducted, so {credit_pct:.0f}% of the amount you pay is added to your wallet.</div>
       <div class="summary" id="summary">Select an amount to see how much will be added.</div>
     </div>
     <div class="err" id="err"></div>
   </div>
   <div class="footer">
     <button class="pay" id="pay" disabled>Select an amount</button>
-    <div class="secure">Secure live payment · KwikUPI</div>
+    <div class="secure">Secure live payment · PayQ</div>
   </div>
   <div id="loader"><div class="spinner"></div><p style="color:var(--muted);margin-top:14px">Starting secure checkout…</p></div>
 
@@ -421,6 +421,9 @@ async def recharge_return(order_id: str = ""):
         elif status == "REVIEW":
             title = "Payment under review"
             message = "We could not verify this payment automatically. Support will review it."
+        elif status == "LEGACY":
+            title = "Payment under review"
+            message = "This order used a previous payment provider. Support will verify it manually."
     scheme = get_settings().deep_link_scheme or "simpletalk"
     return HTMLResponse(
         _return_html(title, order_id, scheme, message),
@@ -434,43 +437,48 @@ async def recharge_return(order_id: str = ""):
 
 
 @router.post("/recharge/webhook")
-@router.post("/recharge/kwikupi/webhook", include_in_schema=False)
+@router.post("/recharge/payq/webhook", include_in_schema=False)
 async def recharge_webhook(request: Request):
-    """KwikUPI webhook: verify HMAC, then re-check status with the gateway."""
-    raw = await request.body()
-    if not kwikupi_service.configured():
-        raise HTTPException(503, "Payment gateway is not configured")
-    signature = request.headers.get("x-webhook-signature", "")
-    if not kwikupi_service.verify_webhook_signature(raw, signature):
+    """PayQ webhook: verify its form hash, then re-check status with PayQ."""
+    if not payq_service.webhook_configured():
+        logger.critical("PayQ webhook received but PAYQ_WEBHOOK_SECRET is not configured")
+        raise HTTPException(503, "Payment webhook is not configured")
+
+    try:
+        form = await request.form()
+    except Exception:
+        raise HTTPException(400, "Invalid form payload")
+    items = list(form.multi_items())
+    signature = form.get("hash") or ""
+    if not payq_service.verify_webhook_signature(items, signature):
+        logger.warning(
+            "PayQ webhook signature verification failed (fields=%s)",
+            sorted({str(k) for k, _ in items}),
+        )
         raise HTTPException(401, "Invalid webhook signature")
 
+    payload = payq_service.webhook_payload(items)
     try:
-        body = json.loads(raw or b"{}")
-    except Exception:
-        raise HTTPException(400, "Invalid JSON")
-    if not isinstance(body, dict):
-        raise HTTPException(400, "Invalid payload")
-
-    try:
-        result = await payment_service.handle_webhook_payload(body)
+        result = await payment_service.handle_webhook_payload(payload)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except Exception:
-        logger.exception("KwikUPI webhook processing failed")
+        logger.exception("PayQ webhook processing failed")
         raise HTTPException(500, "Webhook processing failed")
 
     status = result.get("status")
     if status == "NOT_FOUND":
         raise HTTPException(404, "Order not found")
     if status == "PENDING" and result.get("retryable"):
-        # Ask KwikUPI to retry when the status API was temporarily unreachable.
+        # Ask PayQ to retry when its status API was temporarily unreachable.
         raise HTTPException(502, "Gateway status unavailable")
     if status == "REVIEW":
-        logger.critical("KwikUPI webhook requires manual review: %s", result)
+        logger.critical("PayQ webhook requires manual review: %s", result)
+    nested = payload.get("result") if isinstance(payload.get("result"), dict) else {}
     return {
         "received": True,
         "status": status,
-        "order_id": body.get("order_id") or body.get("orderId"),
+        "order_id": payload.get("order_id") or nested.get("orderId"),
         "credited": result.get("credited"),
     }
 
@@ -505,7 +513,7 @@ async def verify_pending(request: Request, user: dict = Depends(require_user)):
                 "user_id": user["user_id"],
                 "type": "RECHARGE_PENDING",
                 "metadata.status": {"$in": ["PENDING", "PROCESSING"]},
-                "metadata.gateway": "kwikupi",
+                "metadata.gateway": "payq",
             },
             {"_id": 0, "metadata.order_id": 1},
         )
@@ -537,6 +545,7 @@ async def verify_pending(request: Request, user: dict = Depends(require_user)):
             "user_id": user["user_id"],
             "type": "RECHARGE_PENDING",
             "metadata.status": "REVIEW",
+            "metadata.gateway": "payq",
             "created_at": {"$gte": datetime.now(timezone.utc) - timedelta(hours=24)},
         }
     )

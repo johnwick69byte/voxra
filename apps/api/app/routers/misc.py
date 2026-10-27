@@ -14,7 +14,7 @@ from app.models.schemas import (
     ReportUserRequest,
     SupportMessageRequest,
 )
-from app.services import agora_service, kwikupi_service, referral_service
+from app.services import agora_service, payq_service, referral_service
 
 router = APIRouter(tags=["misc"])
 
@@ -56,7 +56,8 @@ async def healthz():
             get_settings().firebase_credentials_path
             or get_settings().firebase_credentials_json
         ),
-        "kwikupi_configured": kwikupi_service.configured(),
+        "payq_configured": payq_service.configured(),
+        "payq_webhook_configured": payq_service.webhook_configured(),
     }
 
 

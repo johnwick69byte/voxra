@@ -55,6 +55,8 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.transactions.create_index([("user_id", 1), ("created_at", -1)])
     await db.transactions.create_index([("type", 1), ("created_at", -1)])
     await db.transactions.create_index("metadata.order_id", sparse=True)
+    # Legacy gateway identifier; retained for auditing old orders. New PayQ
+    # orders use metadata.gateway_order_id instead.
     await db.transactions.create_index("metadata.payment_id", sparse=True)
     await db.platform_wallet.create_index("platform_id", unique=True)
     await db.model_referral_bonuses.create_index("withdrawal_request_id", unique=True, sparse=True)

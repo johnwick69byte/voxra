@@ -26,7 +26,7 @@ Use in-app screens as source of truth:
 
 Data collected: phone, name, profile photo, call metadata, payment order ids, FCM tokens.
 Sensitive: microphone/camera during calls only.
-Sharing: payment processor (Trustope), ImageKit (verification selfies), FCM, Agora RTC.
+Sharing: payment processor (PayQ), ImageKit (verification selfies), FCM, Agora RTC.
 
 ## Soft-launch monitoring
 

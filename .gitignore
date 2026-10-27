@@ -36,3 +36,7 @@ apps/mobile/google-services.json
 **/GoogleService-Info.plist
 *.pem
 serviceAccount*.json
+
+# Local gateway documents may contain live merchant credentials
+/payQ.txt
+/kwikupi.txt

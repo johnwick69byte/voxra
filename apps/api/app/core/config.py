@@ -38,30 +38,22 @@ class Settings(BaseSettings):
     # string env var. Use one or the other. The JSON wins only if the path is unset.
     firebase_credentials_json: str = ""
 
-    trustope_user_token: str = ""
-    trustope_redirect_url: str = "http://localhost:8000/api/wallet/recharge/return"
-
-    # KwikUPI payment gateway (live payments only; there is no sandbox)
-    kwikupi_base_url: str = "https://kwikupi.com/api"
-    kwikupi_api_key: str = ""
-    kwikupi_api_secret: str = ""
+    # PayQ UPI collections (live payments only; no documented sandbox)
+    payq_base_url: str = "https://payq.cc/api"
+    payq_user_token: str = ""
+    # Separate secret shown on the PayQ API Setup page. Used only for the
+    # webhook hash; it is not the merchant API token.
+    payq_webhook_secret: str = ""
     # Optional override. Falls back to backend_url + /api/wallet/recharge/return
-    kwikupi_return_url: str = ""
+    payq_return_url: str = ""
 
-    # Legacy Cashfree settings retained for compatibility; the recharge flow
-    # now uses KwikUPI exclusively.
-    cashfree_app_id: str = ""
-    cashfree_secret_key: str = ""
-    cashfree_environment: str = "production"
-    cashfree_return_url: str = ""
-    cashfree_notify_url: str = ""
-
-    # Recharge economics: platform keeps 6% (3% gateway + 3% service), user is credited 94%
+    # Recharge economics: platform keeps 6% total, user is credited 94%.
+    # PayQ's advertised gateway commission is 0%, so the default split is
+    # 0% gateway + 6% platform service. The total is what matters to users.
     min_recharge_amount: float = 50.0
     max_recharge_amount: float = 100000.0
     recharge_commission_rate: float = 0.06
-    recharge_gateway_rate: float = 0.03
-    recharge_service_rate: float = 0.03
+    recharge_gateway_rate: float = 0.0
 
     imagekit_private_key: str = ""
     imagekit_public_key: str = ""

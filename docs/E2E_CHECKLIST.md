@@ -32,7 +32,7 @@ API: https://voxra-dkfe.onrender.com
 
 ## Wallet / money
 - [ ] Fan: Spendable balance + a "Recharge wallet" entry
-- [ ] Recharge opens the backend-rendered page (balance + packs + custom amount) in an in-app browser; tapping an amount starts live KwikUPI checkout (minimum ₹50)
+- [ ] Recharge opens the backend-rendered page (balance + packs + custom amount) in an in-app browser; tapping an amount starts live PayQ checkout (minimum ₹50)
 - [ ] On success the browser returns to the app and 94% is credited; 6% commission logged to `platform_commissions`
 - [ ] Recharge credit is exactly 94% of what was paid; any first-recharge referral bonus is a separate transaction (not part of the 94%)
 - [ ] Abrupt close after paying: reopen Wallet → pending orders are verified/settled; background reconciler also settles them

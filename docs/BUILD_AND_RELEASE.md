@@ -163,7 +163,7 @@ On the **creator** phone:
   **Available**.
 
 On the **fan** phone:
-- Recharge with a live KwikUPI payment (₹50 test), then open the
+- Recharge with a live PayQ payment (₹50 test), then open the
   creator and start an audio call.
 
 Run the matrix in `docs/CALL_FLOW_TESTS.md` (billing, wallets, withdrawal) and
@@ -256,8 +256,8 @@ compiled into the native project).
 
 ## 5. Environment reference
 
-> KwikUPI credentials, dashboard webhook setup, and the live ₹50 test are
-> documented in [KWIKUPI_PAYMENTS.md](./KWIKUPI_PAYMENTS.md).
+> PayQ credentials, dashboard webhook setup, and the live ₹50 test are
+> documented in [PAYQ_PAYMENTS.md](./PAYQ_PAYMENTS.md).
 
 ### Mobile (public — embedded at build time; already in `eas.json`)
 ```
@@ -284,16 +284,16 @@ AGORA_APP_ID=…           AGORA_APP_CERTIFICATE=…
 MESSAGECENTRAL_CUSTOMER_ID=…  MESSAGECENTRAL_API_KEY=…  MESSAGECENTRAL_EMAIL=…
 FIREBASE_CREDENTIALS_PATH=/etc/secrets/firebase-adminsdk.json
 # OR FIREBASE_CREDENTIALS_JSON={... entire service-account JSON ... }
-KWIKUPI_BASE_URL=https://kwikupi.com/api
-KWIKUPI_API_KEY=…        KWIKUPI_API_SECRET=…
-KWIKUPI_RETURN_URL=https://voxra-dkfe.onrender.com/api/wallet/recharge/return
+PAYQ_BASE_URL=https://payq.cc/api
+PAYQ_USER_TOKEN=…        PAYQ_WEBHOOK_SECRET=…
+PAYQ_RETURN_URL=https://voxra-dkfe.onrender.com/api/wallet/recharge/return
 MIN_RECHARGE_AMOUNT=50   MAX_RECHARGE_AMOUNT=100000
 IMAGEKIT_PRIVATE_KEY=…   IMAGEKIT_PUBLIC_KEY=…     IMAGEKIT_URL_ENDPOINT=…
 COMMISSION_RATE=0.15     CALL_RING_TIMEOUT_SECONDS=45
 WITHDRAWAL_COMMISSION_RATE=0.10
 MODEL_REFERRAL_BONUS_PERCENTAGE=5   MODEL_REFERRAL_MIN_WITHDRAWAL=100
 MIN_AUDIO_RATE=3.0       MIN_VIDEO_RATE=7.0
-RECHARGE_COMMISSION_RATE=0.06  RECHARGE_GATEWAY_RATE=0.03  RECHARGE_SERVICE_RATE=0.03
+RECHARGE_COMMISSION_RATE=0.06  RECHARGE_GATEWAY_RATE=0.0
 REFERRAL_BONUS_REFERRER=25      REFERRAL_BONUS_REFEREE=20
 DEEP_LINK_SCHEME=simpletalk
 ```
@@ -313,8 +313,8 @@ VITE_API_URL=https://voxra-dkfe.onrender.com/api
 - [ ] Give the API the Admin SDK contents: Render Secret File
       `firebase-adminsdk.json` (Option A) **or** `FIREBASE_CREDENTIALS_JSON`
       env var (Option B)
-- [ ] Set the API env vars above in Render (`KWIKUPI_*` especially) and configure the live webhook URL in the KwikUPI Merchant Dashboard
-- [ ] `GET /api/healthz` reports `"kwikupi_configured": true`
+- [ ] Set the API env vars above in Render (`PAYQ_*` especially) and configure the live webhook URL + Webhook Secret in the PayQ dashboard
+- [ ] `GET /api/healthz` reports `"payq_configured": true` and `"payq_webhook_configured": true`
 - [ ] Live ₹50 recharge credits exactly ₹47 and writes a ₹3 commission row; refreshing/retrying does not credit twice
 - [ ] Replace the 3 icon/splash images in `apps/mobile/assets/`
       (`notification-icon.png` is generated — see §4)

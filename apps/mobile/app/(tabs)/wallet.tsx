@@ -151,7 +151,7 @@ export default function WalletScreen() {
     setCheckoutBusy(true);
     try {
       // Open the backend-rendered recharge page (balance + packs + custom amount),
-      // which then starts a live KwikUPI payment.
+      // which then starts a live PayQ payment.
       const base = (process.env.EXPO_PUBLIC_API_URL || "")
         .replace(/\/api\/?$/, "")
         .replace(/\/$/, "");
@@ -208,7 +208,7 @@ export default function WalletScreen() {
         <View style={{ flex: 1 }}>
           <AppText style={styles.rechargeTitle}>Recharge wallet</AppText>
           <AppText variant="caption" style={{ marginTop: 2 }}>
-            Secure UPI via KwikUPI. 94% is added after the 6% fee.
+            Secure UPI via PayQ. 94% is added after the 6% fee.
           </AppText>
         </View>
         <Ionicons name="chevron-forward" size={22} color={theme.colors.textMuted} />

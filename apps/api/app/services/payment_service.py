@@ -1,13 +1,13 @@
-"""Recharge payments via KwikUPI with crash-safe, idempotent wallet credit.
+"""Recharge payments via PayQ with crash-safe, idempotent wallet credit.
 
-Economics: the platform keeps ``recharge_commission_rate`` (default 6%, split
-3% gateway + 3% service) of every recharge. The user is credited the remainder
-(94%). Every credited recharge writes a document to ``platform_commissions``.
+Economics: the platform keeps ``recharge_commission_rate`` (default 6%) of
+every recharge. The user is credited the remainder (94%). Every credited
+recharge writes a document to ``platform_commissions``.
 
-KwikUPI has no sandbox. A wallet credit is only applied after the server asks
-KwikUPI's payment-status API and verifies the order id, payment id, status and
-actual paid amount. Webhook bodies are signature-verified but are never trusted
-for the paid amount on their own.
+PayQ has no documented sandbox. A wallet credit is only applied after the
+server asks PayQ's check-order-status API and verifies the order id, success
+status and actual paid amount. Webhook bodies are signature-verified but are
+never trusted for status or amount on their own.
 """
 
 from __future__ import annotations
@@ -23,12 +23,16 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.database_redis import get_redis, idempotency_key
 from app.core.socket import emit_to_user
-from app.services import kwikupi_service, wallet_service
+from app.services import payq_service, wallet_service
 
 logger = logging.getLogger(__name__)
 
-PLATFORM_WALLET_ID = "platform_001"
 _CENT = Decimal("0.01")
+# PayQ orders expire after 30 minutes unpaid. Keep polling for a conservative
+# grace period, then stop background polling and mark the local order failed.
+# A later authoritative success (webhook/return) is still re-validated and can
+# settle, so no genuinely paid order is discarded just because polling stopped.
+_PENDING_EXPIRY_SECONDS = 2 * 60 * 60
 
 
 def _decimal_amount(value: Any) -> Decimal:
@@ -81,9 +85,9 @@ def split_recharge(amount: float) -> dict:
 
 
 async def initiate_recharge(*, user: dict, amount: float, package_id: Optional[str] = None) -> dict:
-    """Create a live KwikUPI payment page for a recharge order."""
+    """Create a live PayQ payment page for a recharge order."""
     settings = get_settings()
-    if not kwikupi_service.configured():
+    if not payq_service.configured():
         raise ValueError(
             "Recharge is temporarily unavailable because the payment gateway is not configured."
         )
@@ -96,10 +100,17 @@ async def initiate_recharge(*, user: dict, amount: float, package_id: Optional[s
     else:
         gross = normalize_recharge_amount(amount)
 
-    order_id = f"ord_{uuid.uuid4().hex[:14]}"
+    try:
+        customer_mobile = payq_service.normalize_mobile(user.get("phone"))
+    except ValueError as exc:
+        raise ValueError(
+            "Add a valid 10-digit mobile number to your profile before recharging."
+        ) from exc
+
+    now = datetime.now(timezone.utc)
+    order_id = f"ord_{int(now.timestamp())}_{uuid.uuid4().hex[:10]}"
     tx_id = f"tx_recharge_{order_id}"
     db = get_db()
-    now = datetime.now(timezone.utc)
 
     await db.transactions.insert_one(
         {
@@ -113,7 +124,7 @@ async def initiate_recharge(*, user: dict, amount: float, package_id: Optional[s
                 "base_amount": gross,
                 "package_id": package_id,
                 "status": "PENDING",
-                "gateway": "kwikupi",
+                "gateway": "payq",
                 "gateway_environment": "live",
                 "created_for_verification": True,
                 "initiated_at": now,
@@ -122,19 +133,21 @@ async def initiate_recharge(*, user: dict, amount: float, package_id: Optional[s
         }
     )
 
-    return_url = settings.kwikupi_return_url or (
+    return_url = settings.payq_return_url or (
         f"{settings.backend_url.rstrip('/')}/api/wallet/recharge/return"
     )
     separator = "&" if "?" in return_url else "?"
     redirect_url = f"{return_url}{separator}order_id={quote(order_id, safe='')}"
 
+    remark2 = user.get("email") if "@" in str(user.get("email") or "") else user["user_id"]
     try:
-        gateway = await kwikupi_service.create_payment(
+        gateway = await payq_service.create_order(
             order_id=order_id,
             amount=gross,
-            customer_name=user.get("name") or "Simple Talk user",
-            customer_email=user.get("email") if "@" in str(user.get("email") or "") else None,
+            customer_mobile=customer_mobile,
             redirect_url=redirect_url,
+            remark1="Simple Talk wallet recharge",
+            remark2=remark2,
         )
     except Exception as exc:
         await db.transactions.update_one(
@@ -147,11 +160,11 @@ async def initiate_recharge(*, user: dict, amount: float, package_id: Optional[s
                 }
             },
         )
-        logger.exception("KwikUPI order creation failed for %s", order_id)
+        logger.exception("PayQ order creation failed for %s", order_id)
         raise ValueError("Could not start payment. Please try again.") from exc
 
-    payment_id = str(gateway["payment_id"]).strip()
-    payment_url = str(gateway["payment_page"]).strip()
+    gateway_order_id = str(gateway["order_id"]).strip()
+    payment_url = str(gateway["payment_url"]).strip()
 
     # Persist the gateway identifiers before returning the URL. If this update
     # fails, do not hand the user a live payment page we cannot settle.
@@ -160,7 +173,7 @@ async def initiate_recharge(*, user: dict, amount: float, package_id: Optional[s
             {"transaction_id": tx_id},
             {
                 "$set": {
-                    "metadata.payment_id": payment_id,
+                    "metadata.gateway_order_id": gateway_order_id,
                     "metadata.payment_url": payment_url,
                     "metadata.gateway_status": "CREATED",
                     "metadata.last_checked_at": now,
@@ -168,14 +181,14 @@ async def initiate_recharge(*, user: dict, amount: float, package_id: Optional[s
             },
         )
     except Exception as exc:
-        logger.exception("Could not persist KwikUPI payment id for %s", order_id)
+        logger.exception("Could not persist PayQ order id for %s", order_id)
         try:
             await db.transactions.update_one(
                 {"transaction_id": tx_id},
                 {
                     "$set": {
                         "metadata.status": "FAILED",
-                        "metadata.failure_reason": "PAYMENT_ID_PERSIST_FAILED",
+                        "metadata.failure_reason": "GATEWAY_ORDER_PERSIST_FAILED",
                         "metadata.failed_at": datetime.now(timezone.utc),
                     }
                 },
@@ -188,8 +201,8 @@ async def initiate_recharge(*, user: dict, amount: float, package_id: Optional[s
     return {
         "success": True,
         "order_id": order_id,
+        "gateway_order_id": gateway_order_id,
         "transaction_id": tx_id,
-        "payment_id": payment_id,
         "payment_url": payment_url,
         "amount": gross,
         "credit_amount": splits["credit_amount"],
@@ -208,7 +221,10 @@ async def _claim_order(order_id: str, *, allow_reverify: bool) -> Optional[dict]
 
     claimable = ["PENDING"]
     if allow_reverify:
-        claimable.append("PROCESSING")
+        # A late but authoritative success (webhook/return after our local
+        # timeout) must still be able to settle. FAILED orders have never been
+        # credited, and the success payload is re-validated before we get here.
+        claimable.extend(["PROCESSING", "FAILED"])
     claimed = await db.transactions.find_one_and_update(
         {
             "transaction_id": tx["transaction_id"],
@@ -235,19 +251,20 @@ async def _mark_review(
     paid_amount: Optional[float] = None,
 ) -> None:
     db = get_db()
-    payment_id = str(payment.get("payment_id") or "")
+    gateway_order_id = payq_service.order_id(payment)
     await db.transactions.update_one(
         {
             "metadata.order_id": order_id,
             "type": "RECHARGE_PENDING",
-            "metadata.status": {"$in": ["PENDING", "PROCESSING", "REVIEW"]},
+            "metadata.status": {"$in": ["PENDING", "PROCESSING", "REVIEW", "FAILED"]},
         },
         {
             "$set": {
                 "metadata.status": "REVIEW",
                 "metadata.review_reason": reason,
-                "metadata.gateway_status": kwikupi_service.payment_status(payment),
-                "metadata.gateway_payment_id": payment_id or None,
+                "metadata.gateway_status": payq_service.payment_status(payment),
+                "metadata.gateway_reported_order_id": gateway_order_id or None,
+                "metadata.gateway_transaction_id": payq_service.utr(payment) or None,
                 "metadata.gateway_amount": paid_amount,
                 "metadata.reviewed_at": datetime.now(timezone.utc),
                 "metadata.last_checked_at": datetime.now(timezone.utc),
@@ -258,30 +275,23 @@ async def _mark_review(
         "Recharge %s requires review (%s): gateway status=%s amount=%s",
         order_id,
         reason,
-        payment.get("status"),
-        payment.get("amount"),
+        payq_service.payment_status(payment),
+        payq_service.amount(payment),
     )
 
 
 def _validate_success_payment(order: dict, payment: Dict[str, Any]) -> tuple[bool, str, Optional[float]]:
-    """Validate the authoritative gateway status against the stored order."""
-    if not kwikupi_service.is_success(payment):
+    """Validate the authoritative PayQ status against the stored order."""
+    if not payq_service.is_success(payment):
         return False, "NOT_SUCCESS", None
 
     metadata = order.get("metadata") or {}
     order_id = str(metadata.get("order_id") or "")
-    gateway_order_id = str(payment.get("order_id") or "")
+    gateway_order_id = payq_service.order_id(payment)
     if not gateway_order_id or gateway_order_id != order_id:
         return False, "ORDER_ID_MISMATCH", None
 
-    stored_payment_id = str(metadata.get("payment_id") or "")
-    gateway_payment_id = str(payment.get("payment_id") or "")
-    if not gateway_payment_id:
-        return False, "PAYMENT_ID_MISSING", None
-    if stored_payment_id and gateway_payment_id != stored_payment_id:
-        return False, "PAYMENT_ID_MISMATCH", None
-
-    raw_amount = payment.get("amount")
+    raw_amount = payq_service.amount(payment)
     if raw_amount is None or str(raw_amount).strip() == "":
         return False, "AMOUNT_MISSING", None
     try:
@@ -369,9 +379,9 @@ async def process_order_success(
     gross = float(claimed.get("amount") or 0)
     splits = split_recharge(gross)
     user_id = claimed["user_id"]
-    metadata = claimed.get("metadata") or {}
     now = datetime.now(timezone.utc)
-    payment_id = str(verified_payment.get("payment_id") or metadata.get("payment_id") or "")
+    gateway_order_id = payq_service.order_id(verified_payment) or order_id
+    gateway_utr = payq_service.utr(verified_payment) or gateway_transaction_id
 
     # 1. Credit the user's spendable wallet (94%) exactly once.
     applied, wallet = await wallet_service.credit_balance_once(
@@ -395,9 +405,10 @@ async def process_order_success(
         metadata={
             "order_id": order_id,
             "transaction_id": claimed["transaction_id"],
-            "payment_id": payment_id,
-            "gateway": "kwikupi",
-            "gateway_transaction_id": gateway_transaction_id,
+            "gateway": "payq",
+            "gateway_order_id": gateway_order_id,
+            "gateway_transaction_id": gateway_utr,
+            "utr": gateway_utr,
             "gateway_commission": splits["gateway_commission"],
             "service_commission": splits["service_commission"],
         },
@@ -415,16 +426,23 @@ async def process_order_success(
                     f"₹{splits['total_commission']:.2f} fee"
                 ),
                 "metadata.status": "SUCCESS",
-                "metadata.payment_id": payment_id,
-                "metadata.gateway_status": kwikupi_service.payment_status(verified_payment),
-                "metadata.gateway_transaction_id": gateway_transaction_id,
+                "metadata.gateway_order_id": gateway_order_id,
+                "metadata.gateway_status": payq_service.payment_status(verified_payment),
+                "metadata.gateway_transaction_id": gateway_utr,
+                "metadata.utr": gateway_utr,
                 "metadata.gateway_amount": splits["original_amount"],
                 "metadata.credit_amount": splits["credit_amount"],
                 "metadata.completed_at": now,
                 "metadata.verified_at": now,
                 "metadata.last_checked_at": now,
                 "metadata.commission_breakdown": splits,
-            }
+            },
+            "$unset": {
+                "metadata.failure_reason": "",
+                "metadata.failed_at": "",
+                "metadata.review_reason": "",
+                "metadata.reviewed_at": "",
+            },
         },
     )
 
@@ -449,24 +467,33 @@ async def process_order_success(
         "balance": wallet.get("balance", 0),
         "credited": splits["credit_amount"],
         "commission": splits["total_commission"],
-        "payment_id": payment_id,
+        "gateway_order_id": gateway_order_id,
+        "gateway_transaction_id": gateway_utr,
     }
+
+
+def _order_age_seconds(order: dict) -> float:
+    created_at = order.get("created_at")
+    if not isinstance(created_at, datetime):
+        return float("inf")
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - created_at).total_seconds()
 
 
 async def verify_with_gateway(
     order_id: str,
     *,
-    payment_id_hint: Optional[str] = None,
     gateway_transaction_id: Optional[str] = None,
 ) -> dict:
-    """Check the authoritative gateway status and settle the order if paid."""
+    """Check the authoritative PayQ status and settle the order if paid."""
     db = get_db()
     order = await db.transactions.find_one({"metadata.order_id": order_id}, {"_id": 0})
     if not order:
         return {"success": False, "status": "NOT_FOUND", "message": "Order not found"}
     metadata = order.get("metadata") or {}
-    if metadata.get("gateway") != "kwikupi":
-        # Never poll a legacy Cashfree/dev order through KwikUPI. Those require
+    if metadata.get("gateway") != "payq":
+        # Never poll a legacy Cashfree/KwikUPI order through PayQ. Those require
         # manual reconciliation with the gateway that created them.
         return {
             "success": False,
@@ -490,57 +517,10 @@ async def verify_with_gateway(
             "message": metadata.get("review_reason") or "Payment needs review",
         }
 
-    stored_payment_id = str(metadata.get("payment_id") or "")
-    if stored_payment_id:
-        # The stored id came from the authenticated create-payment response.
-        # Webhook body fields are a hint only; if they disagree, trust the
-        # stored id and let the status API decide.
-        payment_id = stored_payment_id
-        if payment_id_hint and str(payment_id_hint) != stored_payment_id:
-            logger.warning(
-                "Ignoring webhook payment_id %s for order %s (stored %s)",
-                payment_id_hint,
-                order_id,
-                stored_payment_id,
-            )
-    else:
-        payment_id = str(payment_id_hint or "")
-    if not payment_id:
-        created_at = order.get("created_at")
-        if isinstance(created_at, datetime):
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
-            age_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
-        else:
-            age_seconds = 10**9
-        if age_seconds < 120:
-            # The order row is inserted before create-payment returns. If a
-            # webhook somehow races that write, retry instead of freezing the
-            # payment in REVIEW.
-            await db.transactions.update_one(
-                {"metadata.order_id": order_id},
-                {"$set": {"metadata.last_checked_at": datetime.now(timezone.utc)}},
-            )
-            return {
-                "success": False,
-                "status": "PENDING",
-                "retryable": True,
-                "message": "Payment is still being registered",
-            }
-        await _mark_review(
-            order_id,
-            "PAYMENT_ID_MISSING",
-            {"payment_id": "", "status": metadata.get("gateway_status"), "amount": None},
-        )
-        return {
-            "success": False,
-            "status": "REVIEW",
-            "message": "Payment identifier missing",
-        }
     try:
-        payment = await kwikupi_service.get_payment_status(payment_id)
+        payment = await payq_service.get_order_status(order_id)
     except Exception as exc:
-        logger.warning("Gateway status check failed for %s: %s", order_id, exc)
+        logger.warning("PayQ status check failed for %s: %s", order_id, exc)
         await db.transactions.update_one(
             {"metadata.order_id": order_id},
             {
@@ -558,34 +538,35 @@ async def verify_with_gateway(
             "retryable": True,
         }
 
-    # Trust the status API, not the webhook body, for success/amount.
-    status_order_id = str(payment.get("order_id") or "")
-    status_payment_id = str(payment.get("payment_id") or "")
+    now = datetime.now(timezone.utc)
+    status_order_id = payq_service.order_id(payment)
+    gateway_status = payq_service.payment_status(payment) or "UNKNOWN"
+    gateway_utr = payq_service.utr(payment) or gateway_transaction_id
+
     if status_order_id and status_order_id != order_id:
         await _mark_review(order_id, "STATUS_ORDER_ID_MISMATCH", payment)
         return {"success": False, "status": "REVIEW", "message": "Order id mismatch"}
-    if status_payment_id and status_payment_id != payment_id:
-        await _mark_review(order_id, "STATUS_PAYMENT_ID_MISMATCH", payment)
-        return {"success": False, "status": "REVIEW", "message": "Payment id mismatch"}
-    if not status_payment_id:
-        payment["payment_id"] = payment_id
-    if not stored_payment_id:
-        # Persist only after the gateway accepts the id. A bad webhook hint must
-        # not become a permanent, unverifiable payment_id.
-        await db.transactions.update_one(
-            {"metadata.order_id": order_id},
-            {"$set": {"metadata.payment_id": payment_id}},
-        )
 
-    if kwikupi_service.is_success(payment):
-        result = await process_order_success(
+    observed = {
+        "metadata.gateway_status": gateway_status,
+        "metadata.last_checked_at": now,
+    }
+    if status_order_id:
+        observed["metadata.gateway_order_id"] = status_order_id
+    if gateway_utr:
+        observed["metadata.gateway_transaction_id"] = gateway_utr
+        observed["metadata.utr"] = gateway_utr
+    await db.transactions.update_one({"metadata.order_id": order_id}, {"$set": observed})
+
+    classification = payq_service.classify(payment)
+    if classification == "SUCCESS":
+        return await process_order_success(
             order_id,
             verified_payment=payment,
-            gateway_transaction_id=gateway_transaction_id,
+            gateway_transaction_id=gateway_utr,
         )
-        return result
 
-    if kwikupi_service.is_failed(payment):
+    if classification == "FAILED":
         await db.transactions.update_one(
             {
                 "metadata.order_id": order_id,
@@ -594,9 +575,10 @@ async def verify_with_gateway(
             {
                 "$set": {
                     "metadata.status": "FAILED",
-                    "metadata.gateway_status": kwikupi_service.payment_status(payment),
-                    "metadata.failed_at": datetime.now(timezone.utc),
-                    "metadata.last_checked_at": datetime.now(timezone.utc),
+                    "metadata.failure_reason": "GATEWAY_FAILED",
+                    "metadata.gateway_status": gateway_status,
+                    "metadata.failed_at": now,
+                    "metadata.last_checked_at": now,
                 }
             },
         )
@@ -606,7 +588,30 @@ async def verify_with_gateway(
             "message": "Payment failed",
         }
 
-    if kwikupi_service.is_pending(payment):
+    if classification == "PENDING":
+        if _order_age_seconds(order) > _PENDING_EXPIRY_SECONDS:
+            # PayQ expires unpaid orders after 30 minutes. Stop polling after a
+            # generous grace period. No money is credited.
+            await db.transactions.update_one(
+                {
+                    "metadata.order_id": order_id,
+                    "metadata.status": {"$in": ["PENDING", "PROCESSING"]},
+                },
+                {
+                    "$set": {
+                        "metadata.status": "FAILED",
+                        "metadata.failure_reason": "GATEWAY_TIMEOUT",
+                        "metadata.gateway_status": gateway_status,
+                        "metadata.failed_at": now,
+                        "metadata.last_checked_at": now,
+                    }
+                },
+            )
+            return {
+                "success": True,
+                "status": "FAILED",
+                "message": "Payment expired",
+            }
         await db.transactions.update_one(
             {
                 "metadata.order_id": order_id,
@@ -615,8 +620,8 @@ async def verify_with_gateway(
             {
                 "$set": {
                     "metadata.status": "PENDING",
-                    "metadata.gateway_status": kwikupi_service.payment_status(payment) or "PENDING",
-                    "metadata.last_checked_at": datetime.now(timezone.utc),
+                    "metadata.gateway_status": gateway_status or "PENDING",
+                    "metadata.last_checked_at": now,
                 }
             },
         )
@@ -635,8 +640,10 @@ async def verify_with_gateway(
 
 
 async def handle_webhook_payload(payload: Dict[str, Any]) -> dict:
-    """Resolve the order from a verified webhook and re-check it with KwikUPI."""
-    nested = payload.get("data")
+    """Resolve the order from a verified webhook and re-check it with PayQ."""
+    nested = payload.get("result")
+    if not isinstance(nested, dict):
+        nested = payload.get("data")
     if not isinstance(nested, dict):
         nested = payload.get("payload")
     if not isinstance(nested, dict):
@@ -651,19 +658,11 @@ async def handle_webhook_payload(payload: Dict[str, Any]) -> dict:
         return None
 
     order_id = first("order_id", "orderId")
-    payment_id = first("payment_id", "paymentId")
-    transaction_id = first("transaction_id", "transactionId", "txn_id")
-    if not order_id and payment_id:
-        db = get_db()
-        tx = await db.transactions.find_one(
-            {"metadata.payment_id": str(payment_id)}, {"_id": 0, "metadata.order_id": 1}
-        )
-        order_id = ((tx or {}).get("metadata") or {}).get("order_id")
+    transaction_id = first("utr", "transaction_id", "transactionId", "txn_id")
     if not order_id:
         raise ValueError("order_id is required")
     return await verify_with_gateway(
         str(order_id),
-        payment_id_hint=str(payment_id) if payment_id else None,
         gateway_transaction_id=str(transaction_id) if transaction_id else None,
     )
 
@@ -677,7 +676,7 @@ async def reconcile_pending_orders(max_age_minutes: int = 10) -> int:
             {
                 "type": "RECHARGE_PENDING",
                 "metadata.status": {"$in": ["PENDING", "PROCESSING"]},
-                "metadata.gateway": "kwikupi",
+                "metadata.gateway": "payq",
                 "metadata.dev_mode": {"$ne": True},
                 "created_at": {"$lt": cutoff},
             },

@@ -9,7 +9,7 @@
 - [x] Phase 0 — monorepo, docker compose, CI, design tokens, modular API
 - [x] Phase 1 — OTP auth, profile, browse/follow, DND, Redis presence
 - [x] Phase 2 — call state machine, server billing loop, FCM/Notifee incoming calls, decline_token
-- [x] Phase 3 — recharge packages, Trustope/dev payment, idempotent credit
+- [x] Phase 3 — recharge packages, PayQ/dev payment, idempotent credit
 - [x] Phase 4 — admin overview (real analytics), live ops, force-end, audit, health
 - [x] Phase 5 — force-update gate, privacy/terms, launch docs & test matrix
 
@@ -27,7 +27,7 @@ Dev OTP: `7723` (hardcoded in `auth_service.py`, accepted in every environment)
 
 ## Store / launch notes
 - Android package / iOS bundle: `com.simple_talk.app`
-- Configure Firebase, Agora, Trustope, ImageKit in `apps/api/.env`
+- Configure Firebase, Agora, PayQ, ImageKit in `apps/api/.env`
 - EAS: set projectId in `app.json`; add CallKit/ConnectionService native modules for production ringing UX
 - Load-test ring + bill paths before soft launch
 - Soft launch monitoring: Admin → Live ops + Health

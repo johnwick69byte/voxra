@@ -210,16 +210,19 @@ export async function ensureCallPermissions(
   return GRANTED;
 }
 
-/** Camera, mic, notifications and the phone account, one after another. */
+/** Camera, mic and notifications, one after another. */
 export async function ensureAllPermissions(): Promise<void> {
   // Sequential on purpose: Android shows one system dialog at a time, so a
   // Promise.all here causes some requests to resolve as denied without ever
   // being displayed.
+  //
+  // The CallKeep phone account is deliberately not requested: Android now uses
+  // the FCM notification + in-app incoming screen, and a second Telecom call UI
+  // would be a duplicate call screen.
   const results = [
     await ensureMicPermission(),
     await ensureCameraPermission(),
     await ensureNotificationPermission(),
-    await ensurePhoneAccount(),
   ];
   const blocked = results.filter((r) => r.reason === "blocked");
   if (blocked.length) {

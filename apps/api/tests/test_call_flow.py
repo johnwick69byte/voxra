@@ -53,25 +53,26 @@ class TestAgoraUid:
 # ── Ring push payload ────────────────────────────────────────────────────────
 
 class TestRingPush:
-    """The ring must be a data-only message so a killed app still receives it."""
+    """The ring must be a notification message, not data-only.
 
-    def test_ring_is_data_only_with_high_importance_channel(self):
-        """Ring must be sent as data-only message so it wakes headless JS task.
+    Data-only messages are only delivered to an already-alive JS process. A
+    killed/swiped app may never run the headless task, so an offline creator
+    with working internet received no notification at all. A notification
+    message is drawn by the OS and uses the custom incoming-calls channel.
+    """
 
-        A notification message (data_only=False) is NOT delivered to a force-stopped
-        app. The headless JS task displays the call notification with fullScreenIntent
-        via Notifee.
-        """
+    def test_ring_is_notification_message_with_custom_sound(self):
         import inspect
 
         from app.services import call_service
 
         src = inspect.getsource(call_service.initiate_call)
-        assert "data_only=True" in src
-        assert "data_only=False" not in src
-        assert 'channel_id="incoming_calls_v1"' in src
-        # full_screen=True is no longer used; Notifee handles fullScreenIntent in handler
-        assert "full_screen=True" not in src
+        assert "data_only=False" in src
+        assert "data_only=True" not in src
+        assert 'channel_id="incoming_calls_v2"' in src
+        assert 'sound="sound_effect"' in src
+        # Uses send_to_user so a dead token is purged instead of retried forever.
+        assert "send_to_user" in src
 
     def test_failed_push_reports_failure_not_success(self, monkeypatch):
         """A misconfigured server must not look healthy in the metrics."""
@@ -123,6 +124,53 @@ class TestPresence:
 
 
 # ── Onboarding gate ──────────────────────────────────────────────────────────
+
+class TestSingleIncomingScreen:
+    """One call must produce one incoming screen, whichever path delivered it."""
+
+    def test_layout_has_one_incoming_route_gate(self):
+        import pathlib
+
+        mobile = pathlib.Path(__file__).resolve().parents[2] / "mobile"
+        src = (mobile / "app" / "_layout.tsx").read_text(encoding="utf-8")
+        assert src.count('pathname: "/incoming-call"') == 1, (
+            "socket/push/pending/active paths must all use openIncoming()"
+        )
+        assert "if (store.incomingOpen) return;" in src
+        assert "callsAPI.active({" in src
+
+    def test_incoming_screen_removes_duplicate_routes(self):
+        import pathlib
+
+        mobile = pathlib.Path(__file__).resolve().parents[2] / "mobile"
+        src = (mobile / "app" / "incoming-call.tsx").read_text(encoding="utf-8")
+        assert "visibleIncomingCallId" in src
+        assert "navigation.isFocused()" in src
+        assert "activeCallId !== callId" in src, (
+            "a stale lower screen must not pop the live call screen"
+        )
+
+    def test_call_screen_owns_one_agora_join_per_call(self):
+        import pathlib
+
+        mobile = pathlib.Path(__file__).resolve().parents[2] / "mobile"
+        src = (mobile / "app" / "call-screen.tsx").read_text(encoding="utf-8")
+        assert "mountedCallScreenId" in src
+        assert "lastHandledCallIdRef.current === callId" in src
+
+
+class TestAcceptRetry:
+    def test_accept_is_idempotent_for_already_accepted_calls(self):
+        """A duplicate Accept returns join credentials instead of 409."""
+        import inspect
+
+        from app.services import call_service
+
+        src = inspect.getsource(call_service.accept_call)
+        assert '("RINGING", "ACCEPTED", "LIVE")' in src
+        assert "already_accepted" in src
+        assert "Call already handled" in src  # still used for terminal states
+
 
 class TestOnboardingGate:
     def test_pending_review_creator_can_use_the_app(self):

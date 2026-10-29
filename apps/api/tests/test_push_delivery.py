@@ -149,17 +149,17 @@ class TestSignupPhotoRemoved:
 # ── Incoming call when app is closed ─────────────────────────────────────────
 
 class TestKilledAppCall:
-    def test_ring_is_data_only_with_fullscreen_intent(self):
-        """Ring must be a data-only message; Notifee handles fullScreenIntent."""
+    def test_ring_is_a_notification_message(self):
+        """The OS must draw the ring; a killed app may never run headless JS."""
         import inspect
 
         from app.services import call_service
 
         src = inspect.getsource(call_service.initiate_call)
-        assert "data_only=True" in src
-        assert "data_only=False" not in src
-        # full_screen=True is no longer used; Notifee handles fullScreenIntent
-        assert "full_screen=True" not in src
+        assert "data_only=False" in src
+        assert "data_only=True" not in src
+        assert 'channel_id="incoming_calls_v2"' in src
+        assert 'sound="sound_effect"' in src
 
     def test_background_handler_persists_pending_call(self):
         """The headless task is a separate JS context; state must be persisted."""
@@ -169,3 +169,30 @@ class TestKilledAppCall:
         assert "savePendingCall" in m.group(1), (
             "pending call must survive the headless context boundary"
         )
+        assert "displayNotification" not in m.group(1), (
+            "the OS already displays the FCM notification; drawing another "
+            "causes duplicate call notifications"
+        )
+
+    def test_foreground_call_does_not_draw_a_second_notification(self):
+        src = read("index.js")
+        m = re.search(r"messaging\(\)\.onMessage\(async \(remoteMessage\) => \{(.*?)\n    \}\);", src, re.S)
+        assert m
+        body = m.group(1)
+        call_branch = body.split("if (data.type === \"incoming_call\")", 1)[1].split(
+            "// Non-call", 1
+        )[0]
+        assert "emitCallRoute" in call_branch
+        assert "displayNotification" not in call_branch
+
+    def test_incoming_channel_is_v2_with_custom_sound(self):
+        src = read("src/services/notificationChannels.ts")
+        assert 'CHANNEL_INCOMING_CALLS = "incoming_calls_v2"' in src
+        assert 'INCOMING_CALL_SOUND = "sound_effect"' in src
+        assert "AndroidImportance.MAX" in src
+
+    def test_custom_sound_is_copied_into_native_builds(self):
+        plugin = read("plugins/withNotificationSound.js")
+        assert "res" in plugin and "raw" in plugin
+        assert "sound_effect.mp3" in plugin
+        assert "addResourceFileToGroup" in plugin

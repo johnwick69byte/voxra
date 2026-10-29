@@ -24,16 +24,22 @@ Severity: **P0** money/security, **P1** broken flow, **P2** missing old feature,
    - Takes a Redis **ring lock** (`ring:{receiver}`); Mongo `RINGING` fallback.
    - Inserts `call_records` row: `status=RINGING`, `rate_per_minute`,
      `last_billed_minute=0`, `decline_token`, `channel_name=channel_{call_id}`.
-   - Sends data-only FCM to the creator + emits `incoming_call` + `creator_status BUSY`.
+   - Sends an FCM notification message to the creator (channel
+     `incoming_calls_v2`, custom `sound_effect` sound) + emits `incoming_call` +
+     `creator_status BUSY`.
    - Schedules the 45s ring timeout (`miss_call`).
 5. Fan screen (`call-screen.tsx`, role=caller) plays ringback; listens for
    `call_accepted`, `call_rejected`, `call_missed`, `call_ended*`.
 
 ### A2. Creator receives
 
-- Foreground: socket `incoming_call` → `/incoming-call` screen.
-- Background/killed: data-only FCM → Notifee full-screen Accept/Decline;
-  decline uses `decline_token` unauthenticated.
+- Foreground: socket/FCM `incoming_call` → the single `/incoming-call` gate.
+- Background/killed: OS-drawn FCM notification → tap routes through
+  `getInitialNotification` / `onNotificationOpenedApp`; the persisted payload
+  and `/calls/active` are only fallbacks and cannot open a second screen.
+- Decline uses `decline_token` unauthenticated.
+- `accept_call` is idempotent: repeating Accept after the call is already
+  `ACCEPTED`/`LIVE` returns fresh join credentials instead of a 409.
 
 ### A3. Accept
 

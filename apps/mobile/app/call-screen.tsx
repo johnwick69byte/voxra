@@ -47,6 +47,11 @@ const IS_PROD = !__DEV__;
 const GIFT_AMOUNTS = [10, 25, 50, 100, 250];
 const GIFT_ICONS = ["🎁", "💎", "🌹", "⭐", "👑"];
 
+// Safety net: even if a duplicate route slips through, only one call screen is
+// allowed to own the Agora engine for a given call. The duplicate removes
+// itself before its media/socket effects can run.
+let mountedCallScreenId: string | null = null;
+
 function CircleBtn({
   icon,
   label,
@@ -118,9 +123,22 @@ export default function CallScreen() {
   const statusRef = useRef(status);
   const graceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveRef = useRef(false);
+  const duplicateMount = useRef(false);
 
   const { setBilling, setLowBalance, lowBalance, totalBilled, balance, setActiveCall, reset } =
     useCallStore();
+
+  useEffect(() => {
+    if (mountedCallScreenId === callId) {
+      duplicateMount.current = true;
+      if (navigation.isFocused()) router.back();
+      return;
+    }
+    mountedCallScreenId = callId;
+    return () => {
+      if (mountedCallScreenId === callId) mountedCallScreenId = null;
+    };
+  }, [callId, navigation, router]);
 
   useEffect(() => {
     statusRef.current = status;
@@ -434,10 +452,17 @@ export default function CallScreen() {
   }, [role, callId]);
 
   useEffect(() => {
+    if (duplicateMount.current) return;
     setActiveCall(callId);
     socketService.joinCall(callId);
 
     const onAccepted = async (payload?: any) => {
+      if (duplicateMount.current) return;
+      // A retried/duplicated accept used to re-enter joinMedia with the same
+      // uid, which makes Agora evict the receiver and produces the "Agora
+      // error" seen after the second incoming screen was accepted.
+      if (lastHandledCallIdRef.current === callId) return;
+      lastHandledCallIdRef.current = callId;
       setStatus("Connecting…");
       await stopRingtone();
       const agora = payload?.agora || {};

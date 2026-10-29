@@ -43,10 +43,9 @@ asyncio.get_event_loop().run_until_complete(
         },
         data_only=False,
         ttl_seconds=45,
-        channel_id="incoming_calls_v1",
+        channel_id="incoming_calls_v2",
+        sound="sound_effect",
         full_screen=True,
-        loop_sound=True,
-        category="call",
     )
 )
 raw = _messaging_encoder.MessageEncoder().default(sent["m"])
@@ -58,6 +57,7 @@ n = raw["android"]["notification"]
 print(f"   notification_priority   : {n.get('notification_priority')}")
 print(f"   visibility              : {n.get('visibility')}")
 print(f"   channel_id              : {n.get('channel_id')}")
+print(f"   sound                   : {n.get('sound')}")
 print(f"   small icon              : {n.get('icon')}")
 print(f"   ttl                     : {raw['android'].get('ttl')}")
 
@@ -75,23 +75,17 @@ for state, handler, note in checks:
     present = handler in idx
     print(f"   {state:20} {handler:30} {'OK' if present else 'MISSING'}  ({note})")
 
-# 3. CallKeep for full-screen UI
-ck = (MOBILE / "src/services/CallKeepService.ts").read_text(encoding="utf-8")
-print("\n3. CALLKEEP (full-screen call UI)")
-for name, needle in [
-    ("registerAndroidEvents bound", "registerAndroidEvents"),
-    ("displayIncomingCall used", "displayIncomingCall"),
-    ("answer listener", "answerCall"),
-    ("end listener", "endCall"),
-    ("phone account ensure", "registerPhoneAccount"),
-]:
-    print(f"   {name:30} {'OK' if needle in ck else 'MISSING'}")
+# 3. CallKeep is intentionally not used for incoming calls anymore
+lay = (MOBILE / "app/_layout.tsx").read_text(encoding="utf-8")
+print("\n3. NATIVE CALL UI")
+print(f"   CallKeep not bound      : {'OK' if 'setupCallKeep' not in lay else 'DUPLICATE RISK'}")
+print(f"   single in-app screen    : {'OK' if lay.count('pathname: \"/incoming-call\"') == 1 else 'MULTIPLE ROUTES'}")
 
 # 4. Dedup
-lay = (MOBILE / "app/_layout.tsx").read_text(encoding="utf-8")
 print("\n4. DEDUP")
-print(f"   incomingOpen claim      : {'OK' if 'claimCall' in lay else 'MISSING'}")
+print(f"   incomingOpen claim      : {'OK' if 'if (store.incomingOpen) return;' in lay else 'MISSING'}")
 print(f"   clears on dismiss       : {'OK' if 'setIncomingOpen(null)' in lay else 'MISSING'}")
+print(f"   active recovery gated   : {'OK' if 'openCallScreen' in lay else 'MISSING'}")
 
 print("\n" + "=" * 72)
 print("VERDICT")
@@ -99,11 +93,14 @@ print("=" * 72)
 ok = (
     "notification" in raw
     and raw["android"].get("priority") == "high"
+    and n.get("channel_id") == "incoming_calls_v2"
+    and n.get("sound") == "sound_effect"
     and all(h in idx for _, h, _ in checks)
-    and "registerAndroidEvents" in ck
+    and lay.count('pathname: "/incoming-call"') == 1
 )
 print("Incoming call should reach a CLOSED app:" , "YES" if ok else "NO")
 print("  - notification message   -> Android draws it without the app running")
 print("  - priority high          -> wakes the device promptly")
+print("  - channel v2/sound       -> custom sound, one notification")
 print("  - tap routes to call UI  -> via getInitialNotification/onNotificationOpenedApp")
-print("  - CallKeep registered    -> full-screen incoming UI on the lock screen")
+print("  - one in-app gate        -> no duplicate incoming/call screens")

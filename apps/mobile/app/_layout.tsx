@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { View, ActivityIndicator } from "react-native";
+import { AppState, View, ActivityIndicator } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 import Toast from "react-native-toast-message";
 import { useAuthStore } from "../src/store/authStore";
@@ -11,20 +11,22 @@ import {
   consumePendingCall,
   registerNotifeeForeground,
   cancelCallNotification,
-  showIncomingCallNotification,
-  reportIncomingCallToCallKit,
+  clearPendingCall,
 } from "../src/services/IncomingCallService";
 import { subscribeCallRoute } from "../src/services/callRouter";
 import { subscribeNavigation } from "../src/services/navigationQueue";
 import { theme } from "../src/theme/tokens";
 import { useAppFonts } from "../src/theme/fonts";
 import { ForceUpdateGate } from "../src/components/ForceUpdateGate";
-import { registerDevicePushToken } from "../src/services/pushRegistration";
+import {
+  registerDevicePushToken,
+  syncPushTokenIfPermitted,
+} from "../src/services/pushRegistration";
 import { ensureNotificationChannels } from "../src/services/notificationChannels";
-import { setupCallKeep } from "../src/services/CallKeepService";
 import { callsAPI } from "../src/services/api";
 import { useNotificationsStore } from "../src/store/notificationsStore";
 import { ensureAllPermissions } from "../src/services/permissions";
+import { openCallScreen, buildCallParamsFromActive } from "../src/services/callNavigation";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -32,22 +34,13 @@ export default function RootLayout() {
   const { fontsLoaded } = useAppFonts();
   const { hydrate, loading, user, token } = useAuthStore();
   const setIncoming = useCallStore((s) => s.setIncoming);
-  const setActiveCall = useCallStore((s) => s.setActiveCall);
   const router = useRouter();
   const hadSession = useRef(false);
 
   useEffect(() => {
     hydrate();
-    // Setup CallKeep first, then bind listeners so they're ready for incoming calls
-    setupCallKeep().then(() => {
-      try {
-        require("../src/services/CallKeepService").bindCallKeepListeners();
-      } catch {
-        /* native module unavailable */
-      }
-    });
-    // Must exist before the first FCM push, otherwise Android falls back to a
-    // silent channel with the launcher icon.
+    // Notification channels must exist before the first push. The incoming
+    // channel owns the custom sound and the white silhouette icon.
     ensureNotificationChannels();
     const unsub = registerNotifeeForeground();
     return () => {
@@ -75,6 +68,18 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, loading]);
 
+  // FCM rotates tokens while the app is backgrounded/killed. Re-upload on every
+  // foreground so an offline creator cannot silently keep a dead token.
+  useEffect(() => {
+    if (!user || !token) return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        syncPushTokenIfPermitted().catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, [user, token]);
+
   useEffect(() => {
     if (!user || !token) return;
 
@@ -82,108 +87,99 @@ export default function RootLayout() {
     // notifications are denied, producing a token that can never display
     // anything -- so registration must not race the permission dialog.
     (async () => {
-      // Camera, mic, notifications and the Telecom phone account, once per
-      // session. Every branch is a no-op when the permission is already held,
-      // so this never re-prompts. Doing it at login rather than mid-call means
-      // the first incoming call is not missed while dialogs are on screen.
+      // Camera, mic and notifications once per session. Every branch is a
+      // no-op when the permission is already held, so this never re-prompts.
       await ensureAllPermissions();
       await registerDevicePushToken();
     })();
 
-    (async () => {
-      try {
-        const res = await callsAPI.active();
-        const call = res.data?.call;
-        if (!call?.call_id) return;
-        const role = res.data?.role || "caller";
-        const agora = res.data?.agora || {};
-        if (call.status === "RINGING" && role === "receiver") {
-          setIncoming({
-            call_id: call.call_id,
-            caller_name: call.caller_name || "Caller",
-            call_type: call.call_type,
-            channel_name: call.channel_name,
-          });
-          router.push({
-            pathname: "/incoming-call",
-            params: {
-              callId: call.call_id,
-              callerName: call.caller_name || "Caller",
-              callType: call.call_type || "AUDIO",
-              channelName: call.channel_name || "",
-            },
-          });
-          return;
-        }
-        if (call.status === "ACCEPTED" || call.status === "LIVE") {
-          setActiveCall(call.call_id);
-          router.push({
-            pathname: "/call-screen",
-            params: {
-              callId: call.call_id,
-              role,
-              callType: call.call_type || "AUDIO",
-              peerName: role === "caller" ? call.receiver_name || "Peer" : call.caller_name || "Peer",
-              peerId: role === "caller" ? call.receiver_id : call.caller_id,
-              channelName: call.channel_name || "",
-              agoraToken: agora.token || "",
-              agoraAppId: agora.app_id || "",
-              agoraUid: String(agora.uid ?? ""),
-            },
-          });
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
+    /**
+     * The only place an incoming screen is opened.
+     *
+     * Incoming calls can arrive through the socket, an FCM notification tap,
+     * the persisted headless payload, and the active-call recovery endpoint.
+     * They all converge here. The store claim is synchronous, so the second
+     * caller is rejected before it can push a second route.
+     */
+    const openIncoming = async (
+      payload: any,
+      opts?: { action?: string; verify?: boolean }
+    ) => {
+      const callId = String(payload?.call_id || payload?.callId || "");
+      if (!callId) return;
 
-    // A call can arrive over both the socket and FCM, and a notification tap can
-    // re-deliver it. Suppress only while this call is already on screen -- using
-    // a time window would swallow a tap that comes after the screen was closed
-    // (e.g. the socket rang while backgrounded, then the user taps the
-    // notification moments later).
-    const claimCall = (callId?: string) => {
-      if (!callId) return true;
-      if (useCallStore.getState().incomingOpen === callId) return false;
-      return true;
-    };
-
-    const openIncoming = async (payload: any, opts?: { action?: string }) => {
-      // A decline coming from the native call UI must reject server-side, not
-      // open the in-app screen.
+      // A decline coming from a legacy native/notification action must reject
+      // server-side, not open the in-app screen.
       if (opts?.action === "decline") {
         try {
-          await callsAPI.reject(String(payload?.call_id || ""), String(payload?.decline_token || ""));
+          await callsAPI.reject(callId, String(payload?.decline_token || ""));
         } catch {
           /* already handled */
         }
-        await cancelCallNotification(payload?.call_id);
-        useCallStore.getState().setIncomingOpen(null);
+        await cancelCallNotification(callId);
+        clearPendingCall(callId).catch(() => {});
         setIncoming(null);
+        useCallStore.getState().setIncomingOpen(null);
         return;
       }
-      if (!claimCall(payload?.call_id)) return;
-      const isAccept = opts?.action === "accept";
-      useCallStore.getState().setIncomingOpen(payload?.call_id ?? null);
-      setIncoming(payload);
-      // Register the call with the OS (Android Telecom / iOS CallKit) so it can
-      // take over the screen like a normal phone call. Previously this ran on
-      // iOS only, which is why Android showed no full-screen incoming UI.
-      await reportIncomingCallToCallKit(payload);
-      if (!isAccept) {
-        await showIncomingCallNotification(payload);
+
+      // Notification taps can be seconds old. Confirm with the authoritative
+      // call state before showing a screen; if the call was already accepted,
+      // go straight to the call screen instead.
+      let effective = payload;
+      if (opts?.verify) {
+        try {
+          // Short timeout: a notification tap must not wait 30s for a cold
+          // Render instance before showing the call screen.
+          const res = await callsAPI.active({ timeout: 3500 });
+          const active = res.data;
+          const call = active?.call;
+          if (
+            !call ||
+            call.call_id !== callId ||
+            active.role !== "receiver" ||
+            call.status !== "RINGING"
+          ) {
+            if (
+              call?.call_id === callId &&
+              ["ACCEPTED", "LIVE"].includes(call.status)
+            ) {
+              const params = buildCallParamsFromActive(active);
+              if (params) openCallScreen(params);
+            }
+            return;
+          }
+          // Merge the fresh server record over the push payload, keeping the
+          // push's caller name/picture/decline token when the active endpoint
+          // does not carry them.
+          effective = { ...call, ...payload };
+        } catch {
+          /* network unavailable: trust the fresh push payload */
+        }
       }
+
+      const store = useCallStore.getState();
+      if (store.activeCallId) return;
+      // The server allows only one ringing call per creator. Refusing a second
+      // screen here also protects against duplicate socket/push deliveries.
+      if (store.incomingOpen) return;
+
+      store.setIncomingOpen(callId);
+      setIncoming(effective);
+      // Clean up any legacy Notifee notification/persisted payload. Do not
+      // await: the incoming screen must appear immediately.
+      cancelCallNotification(callId).catch(() => {});
+
       router.push({
         pathname: "/incoming-call",
         params: {
-          callId: payload.call_id || "",
-          callerName: payload.caller_name || "Someone",
-          callerId: payload.caller_id || "",
-          callerPicture: payload.caller_picture || "",
-          callType: payload.call_type || "AUDIO",
-          channelName: payload.channel_name || "",
-          declineToken: payload.decline_token || "",
-          autoAccept: isAccept ? "1" : "0",
+          callId,
+          callerName: effective.caller_name || "Someone",
+          callerId: effective.caller_id || "",
+          callerPicture: effective.caller_picture || "",
+          callType: effective.call_type || "AUDIO",
+          channelName: effective.channel_name || "",
+          declineToken: effective.decline_token || "",
         },
       });
     };
@@ -191,8 +187,10 @@ export default function RootLayout() {
     const onIncoming = async (payload: any) => {
       await openIncoming(payload);
     };
+
     const onCancelNotif = async (payload: any) => {
       await cancelCallNotification(payload?.call_id);
+      clearPendingCall(payload?.call_id).catch(() => {});
       setIncoming(null);
       // Release the slot so a subsequent call for the same id can open again.
       useCallStore.getState().setIncomingOpen(null);
@@ -219,10 +217,12 @@ export default function RootLayout() {
     useNotificationsStore.getState().refresh();
 
     // Notification taps (cold start, backgrounded, or while running) all land
-    // here. Subscribing for the lifetime of the session means a tap that
-    // happens while the app is already open still opens the call screen.
+    // here. Verification is deliberately on: a tap can race the ring timeout.
     const unsubscribeRoute = subscribeCallRoute(async (payload) => {
-      await openIncoming(payload, { action: payload.action });
+      await openIncoming(payload, {
+        action: payload.action,
+        verify: payload.action !== "decline",
+      });
     });
 
     // Taps on non-call notifications (creator online, approval, withdrawal).
@@ -231,11 +231,47 @@ export default function RootLayout() {
       router.push(path as never);
     });
 
-    // Anything received before this screen mounted (app cold-started by a tap).
+    /**
+     * Cold-start recovery.
+     *
+     * /calls/active is authoritative. A persisted push payload is only used
+     * when the active request cannot be completed, or when it matches the
+     * active RINGING call. This removes the old race where active recovery and
+     * the persisted payload each pushed their own incoming-call screen.
+     */
     (async () => {
       const pending = await consumePendingCall();
-      if (pending?.call_id) {
-        await openIncoming(pending, { action: pending.action });
+      let activeData: any = null;
+      let activeKnown = false;
+      try {
+        const res = await callsAPI.active({ timeout: 6000 });
+        activeData = res.data;
+        activeKnown = true;
+      } catch {
+        /* offline: the fresh persisted payload is the best available state */
+      }
+
+      const call = activeData?.call;
+      const role = activeData?.role;
+      if (call) {
+        if (call.status === "RINGING" && role === "receiver") {
+          const effective =
+            pending?.call_id === call.call_id ? { ...call, ...pending } : call;
+          await openIncoming(effective);
+          return;
+        }
+        if (
+          ["ACCEPTED", "LIVE"].includes(call.status) ||
+          (call.status === "RINGING" && role === "caller")
+        ) {
+          const params = buildCallParamsFromActive(activeData);
+          if (params) openCallScreen(params);
+          return;
+        }
+      }
+
+      if (pending?.call_id && !activeKnown) {
+        await openIncoming(pending);
       }
     })();
 

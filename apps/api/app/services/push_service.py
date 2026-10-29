@@ -2,13 +2,20 @@
 
 Two delivery modes:
 
-* ``send_push`` (data_only=False) sends a *notification* message. Android
-  renders it from the system tray, so it works even when the app has been
-  force-stopped. Used for calls: a data-only message is NOT delivered to a
-  killed app, which is why incoming calls never arrived.
+* ``send_push`` (data_only=False) sends a *notification* message. Android and
+  iOS render it in the tray/notification centre even when the app process is
+  killed, so this is the reliable path for incoming calls. The app receives the
+  tap through ``getInitialNotification`` / ``onNotificationOpenedApp`` and opens
+  the in-app incoming screen.
 
-* ``send_push`` (data_only=True) sends a data message, only for a process that
-  is already alive.
+* ``send_push`` (data_only=True) sends a data message. It only reaches a process
+  that is already alive (or a headless task Android chooses to start). It is
+  suitable for best-effort background refreshes, never for "must ring" alerts.
+
+Incoming calls must use a notification message. The old data-only path relied
+on a headless JS task to draw a Notifee notification; on many devices the OS
+never starts that task for a swiped/killed app, so an offline creator with
+working internet received nothing.
 """
 
 from __future__ import annotations
@@ -84,15 +91,23 @@ async def send_push(
     data_only: bool = False,
     ttl_seconds: Optional[int] = None,
     channel_id: str = "app_notifications",
+    sound: str = "default",
     full_screen: bool = False,
     loop_sound: bool = False,
     category: Optional[str] = None,
 ) -> bool:
     """Send one FCM message.
 
-    full_screen=True marks the notification as a time-critical call alert:
-    Android may then launch the app over the lock screen, which is what makes an
-    incoming call look like WhatsApp. It also keeps the ring repeating.
+    ``sound`` is the Android raw-resource name without the extension (for
+    example ``sound_effect``) and the matching iOS bundle filename is derived
+    from it. Android 8+ takes the sound from the notification channel; the
+    per-notification value is the pre-8 fallback.
+
+    full_screen=True marks a time-critical call alert (max priority, public
+    visibility, vibration). FCM notification messages cannot carry Android's
+    full-screen Intent, so tapping the heads-up notification opens the call UI;
+    the alternative -- data-only + a headless Notifee task -- is not reliable
+    when the app has been killed. loop_sound only sets the iOS APNs category.
     """
     if not token:
         return False
@@ -114,12 +129,21 @@ async def send_push(
     str_data = {str(k): str(v) for k, v in (data or {}).items() if v is not None}
     ttl = timedelta(seconds=ttl_seconds) if ttl_seconds else None
 
+    android_sound = sound or "default"
+    ios_sound = (
+        "default"
+        if android_sound == "default"
+        else (android_sound if "." in android_sound else f"{android_sound}.mp3")
+    )
+
     if data_only:
         android = messaging.AndroidConfig(priority="high", ttl=ttl, notification=None)
+        apns_sound = None
     else:
         android_notification = messaging.AndroidNotification(
             channel_id=channel_id,
-            sound="default",
+            sound=android_sound,
+            default_sound=android_sound == "default",
             # White silhouette installed by
             # plugins/withAndroidNotificationIcon.js. FCM renders this when the
             # app is killed; without it Android falls back to the launcher icon.
@@ -127,16 +151,13 @@ async def send_push(
             color="#0F766E",
         )
         if full_screen:
-            # AndroidNotification has no full-screen flag; FCM maps these
-            # extras onto the notification so the OS treats it as an alarm-class
-            # alert that can take over the screen.
-            # `priority` encodes to FCM's notification_priority and takes one of
-            # "default" / "min" / "low" / "high" / "max".
+            # FCM cannot attach Android's full-screen Intent, so this is the
+            # highest-priority heads-up notification. `max` also wakes the
+            # device from Doze; tapping it enters the in-app call flow.
             android_notification.priority = "max"
             android_notification.visibility = "public"
             android_notification.default_vibrate_timings = True
             android_notification.vibrate_timings_millis = [300, 500, 300, 500]
-            android_notification.default_sound = True
             # No click_action: FCM treats it as an Intent action and it is
             # ignored unless the app declares a matching intent-filter. The tap
             # is routed by the data payload instead (see the mobile callRouter).
@@ -145,13 +166,13 @@ async def send_push(
             # ending and the user cannot swipe it away.
         # NOTE: Android has no FCM `category` field -- the CALL category is
         # applied in-app by Notifee. `category` below sets the iOS APNs one.
-        if channel_id == "incoming_calls_v1":
-            android_notification.default_sound = True
         android = messaging.AndroidConfig(
             priority="high",
             ttl=ttl,
             notification=android_notification,
         )
+
+        apns_sound = ios_sound
 
     # On iOS a call must set content-available so the app can be woken, and
     # sound must be present for the ring to play while backgrounded.
@@ -164,8 +185,8 @@ async def send_push(
         payload=messaging.APNSPayload(
             aps=messaging.Aps(
                 content_available=True,
-                sound=None if data_only else "default",
-                category="INCOMING_CALL" if loop_sound else None,
+                sound=apns_sound,
+                category=(category or "INCOMING_CALL") if loop_sound else None,
             )
         ),
     )

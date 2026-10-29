@@ -1,13 +1,19 @@
 /**
- * Incoming call notifications — Notifee full-screen CALL category (Android).
- * iOS CallKit via CallKeepService when native module is present.
- * Lazy-loads Notifee so Expo Go can boot without native binaries.
+ * Incoming-call persistence and legacy notification handling.
+ *
+ * New calls are delivered as FCM notification messages and rendered by the OS.
+ * This module keeps the payload across the headless -> UI process boundary,
+ * clears it as soon as the call is handled, and keeps the old Notifee call
+ * notification actions working for users upgrading from an older build.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { reportIncomingCallToCallKit as displayCallKit, endCallKeepCall } from "./CallKeepService";
+import { endCallKeepCall } from "./CallKeepService";
 import { hasNotifeeNative } from "./nativeAvailability";
 
 const PENDING_CALL_KEY = "pending_incoming_call";
+// The server stops ringing after CALL_RING_TIMEOUT_SECONDS (45). Anything much
+// older is stale and must never open an incoming screen on a later launch.
+const PENDING_CALL_MAX_AGE_MS = 90_000;
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://voxra-dkfe.onrender.com/api";
 
 function getNotifee(): any | null {
@@ -20,79 +26,13 @@ function getNotifee(): any | null {
   }
 }
 
-export async function showIncomingCallNotification(data: Record<string, any>) {
-  const notifee = getNotifee();
-  if (!notifee) {
-    console.warn("[incoming] Notifee unavailable — open in-app incoming screen via socket only");
-    return;
-  }
-  const AndroidImportance = notifee.AndroidImportance || require("@notifee/react-native").AndroidImportance;
-  const { AndroidCategory, AndroidVisibility, AndroidColor } = require("@notifee/react-native");
-
-  const channelId = await notifee.createChannel({
-    id: "incoming_calls_v1",
-    name: "Incoming Calls",
-    importance: AndroidImportance.MAX,
-    sound: "default",
-    vibration: true,
-    vibrationPattern: [300, 500, 300, 500],
-    bypassDnd: true,
-    lights: true,
-  });
-
-  const callerName = data.caller_name || data.callerName || "Someone";
-  const callType = String(data.call_type || data.callType || "AUDIO").toUpperCase();
-  const callId = data.call_id || data.callId || "";
-
-  await notifee.displayNotification({
-    id: `call_${callId}`,
-    title: `Incoming ${callType === "VIDEO" ? "Video" : "Audio"} Call`,
-    body: `${callerName} is calling you`,
-    data: {
-      call_id: callId,
-      caller_id: data.caller_id || "",
-      caller_name: callerName,
-      caller_picture: data.caller_picture || "",
-      call_type: callType,
-      channel_name: data.channel_name || "",
-      decline_token: data.decline_token || "",
-      type: "incoming_call",
-    },
-    android: {
-      channelId,
-      // White silhouette installed by plugins/withAndroidNotificationIcon.js.
-      // Without this Notifee uses the launcher icon -> unreadable white blob.
-      smallIcon: "ic_notification",
-      importance: AndroidImportance.MAX,
-      category: AndroidCategory.CALL,
-      visibility: AndroidVisibility.PUBLIC,
-      ongoing: true,
-      autoCancel: false,
-      loopSound: true,
-      lights: [AndroidColor.GREEN, 300, 600],
-      fullScreenAction: { id: "full_screen", launchActivity: "default" },
-      pressAction: { id: "default", launchActivity: "default" },
-      actions: [
-        { title: "Accept", pressAction: { id: "accept", launchActivity: "default" } },
-        { title: "Decline", pressAction: { id: "decline" } },
-      ],
-      timeoutAfter: 45000,
-    },
-  });
-}
-
-export async function cancelCallNotification(callId?: string) {
-  const notifee = getNotifee();
-  if (callId) {
-    if (notifee) await notifee.cancelNotification(`call_${callId}`);
-    await endCallKeepCall(callId);
-  } else if (notifee) {
-    await notifee.cancelAllNotifications();
-  }
-}
-
 export async function savePendingCall(data: Record<string, any>) {
-  await AsyncStorage.setItem(PENDING_CALL_KEY, JSON.stringify(data));
+  // saved_at is overwritten even when an older payload is re-saved, so a
+  // duplicate FCM delivery cannot make a stale call look fresh.
+  await AsyncStorage.setItem(
+    PENDING_CALL_KEY,
+    JSON.stringify({ ...data, saved_at: Date.now() })
+  );
 }
 
 export async function consumePendingCall() {
@@ -100,9 +40,55 @@ export async function consumePendingCall() {
   if (!raw) return null;
   await AsyncStorage.removeItem(PENDING_CALL_KEY);
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!parsed?.call_id) return null;
+    const savedAt = Number(parsed.saved_at || 0);
+    if (savedAt && Date.now() - savedAt > PENDING_CALL_MAX_AGE_MS) return null;
+    return parsed;
   } catch {
     return null;
+  }
+}
+
+/** Remove a pending call, but only when it belongs to `callId`. */
+export async function clearPendingCall(callId?: string) {
+  if (!callId) {
+    await AsyncStorage.removeItem(PENDING_CALL_KEY);
+    return;
+  }
+  const raw = await AsyncStorage.getItem(PENDING_CALL_KEY);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed?.call_id || parsed.call_id === callId) {
+      await AsyncStorage.removeItem(PENDING_CALL_KEY);
+    }
+  } catch {
+    await AsyncStorage.removeItem(PENDING_CALL_KEY);
+  }
+}
+
+/**
+ * Cancel the local call notification (and legacy CallKeep UI) for a call.
+ *
+ * FCM notification messages cannot be cancelled by JS, but any Notifee call
+ * notification from an older build can. This also clears the persisted payload
+ * so a later cold start cannot resurrect a call that has already ended.
+ */
+export async function cancelCallNotification(callId?: string) {
+  const notifee = getNotifee();
+  if (callId) {
+    if (notifee) {
+      try {
+        await notifee.cancelNotification(`call_${callId}`);
+      } catch {
+        /* ignore */
+      }
+    }
+    await endCallKeepCall(callId);
+    await clearPendingCall(callId);
+  } else if (notifee) {
+    await notifee.cancelAllNotifications();
   }
 }
 
@@ -125,22 +111,28 @@ export function registerNotifeeForeground() {
   const { EventType } = require("@notifee/react-native");
   const { emitCallRoute } = require("./callRouter");
   return notifee.onForegroundEvent(async ({ type, detail }: any) => {
+    if (type !== EventType.PRESS && type !== EventType.ACTION_PRESS) return;
     const data = detail.notification?.data || {};
-    if (data.type !== "incoming_call") return;
-    if (type === EventType.ACTION_PRESS && detail.pressAction?.id === "decline") {
-      await declineCallFromNotification(String(data.call_id), String(data.decline_token || ""));
-      return;
-    }
-    if (type === EventType.ACTION_PRESS && detail.pressAction?.id === "accept") {
-      emitCallRoute({ ...data, action: "accept" });
-      return;
-    }
-    if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
+
+    if (data.type === "incoming_call") {
+      if (detail.pressAction?.id === "decline") {
+        await declineCallFromNotification(
+          String(data.call_id || ""),
+          String(data.decline_token || "")
+        );
+        return;
+      }
+      // Legacy Accept action and a plain tap both open the single incoming
+      // screen. The screen itself is the only place a call can be accepted.
       emitCallRoute({ ...data, action: "ring" });
+      return;
+    }
+
+    try {
+      const { routeGeneralNotification } = require("./inAppNotifications");
+      await routeGeneralNotification(data);
+    } catch (e) {
+      console.warn("[notif] could not route notification tap", e);
     }
   });
-}
-
-export async function reportIncomingCallToCallKit(payload: Record<string, any>) {
-  await displayCallKit(payload);
 }

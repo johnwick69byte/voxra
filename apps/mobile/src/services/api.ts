@@ -118,7 +118,7 @@ export const callsAPI = {
   end: (callId: string) => api.post(`/calls/${callId}/end`),
   handleDisconnect: (callId: string) => api.post(`/calls/${callId}/handle-disconnect`),
   reconnect: (callId: string) => api.post(`/calls/${callId}/reconnect`),
-  active: () => api.get("/calls/active"),
+  active: (config?: AxiosRequestConfig) => api.get("/calls/active", config),
   history: () => api.get("/calls/history"),
   gift: (callId: string, amount: number) =>
     api.post(`/calls/${callId}/gift`, { amount }),

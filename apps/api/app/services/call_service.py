@@ -171,7 +171,11 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
     call = {
         "call_id": call_id,
         "caller_id": caller["user_id"],
+        "caller_name": caller.get("name") or "Someone",
+        "caller_picture": caller_picture,
+        "caller_user_type": caller_type,
         "receiver_id": receiver_id,
+        "receiver_name": receiver.get("name") or "Creator",
         "call_type": call_type,
         "status": "RINGING",
         "channel_name": channel_name,
@@ -195,35 +199,37 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
         logger.exception("call insert failed for %s", call_id)
         raise HTTPException(500, "Could not start the call, please try again")
 
-    # Ring via a *data-only* message with high priority. This wakes the
-    # headless JS task even when the app is killed/swiped. The background
-    # handler (index.js) will display a Notifee notification with a
-    # fullScreenIntent that launches the full-screen call UI.
-    push_doc = await db.push_tokens.find_one({"user_id": receiver_id}, {"_id": 0})
-    if push_doc and push_doc.get("device_push_token"):
-        remaining = settings.call_ring_timeout_seconds
-        await push_service.send_push(
-            push_doc["device_push_token"],
-            title=f"Incoming {call_type.lower()} call",
-            body=f"{caller.get('name') or 'Someone'} is calling you",
-            data={
-                "type": "incoming_call",
-                "call_id": call_id,
-                "caller_id": caller["user_id"],
-                "caller_name": caller.get("name") or "Someone",
-                "caller_picture": caller_picture,
-                "caller_user_type": caller_type,
-                "call_type": call_type,
-                "channel_name": channel_name,
-                "decline_token": decline_token,
-                "route": "incoming-call",
-            },
-            data_only=True,
-            ttl_seconds=remaining,
-            channel_id="incoming_calls_v1",
-            loop_sound=True,
-            category="call",
-        )
+    # Ring with an FCM *notification* message, not data-only. Android/iOS draw
+    # it even when our process was killed; the old headless Notifee path was
+    # silently skipped on many devices, so an offline creator with working
+    # internet never saw the call. The app turns the tap into the single
+    # in-app incoming screen (data payload routes to /incoming-call).
+    remaining = settings.call_ring_timeout_seconds
+    sent = await push_service.send_to_user(
+        db,
+        receiver_id,
+        title=f"Incoming {call_type.lower()} call",
+        body=f"{caller.get('name') or 'Someone'} is calling you",
+        data={
+            "type": "incoming_call",
+            "call_id": call_id,
+            "caller_id": caller["user_id"],
+            "caller_name": caller.get("name") or "Someone",
+            "caller_picture": caller_picture,
+            "caller_user_type": caller_type,
+            "call_type": call_type,
+            "channel_name": channel_name,
+            "decline_token": decline_token,
+            "route": "incoming-call",
+        },
+        data_only=False,
+        ttl_seconds=remaining,
+        channel_id="incoming_calls_v2",
+        sound="sound_effect",
+        full_screen=True,
+    )
+    if not sent:
+        logger.warning("ring push not delivered for call %s (receiver %s)", call_id, receiver_id)
 
     payload = {
         "call_id": call_id,
@@ -293,8 +299,15 @@ async def accept_call(*, call_id: str, user: dict) -> dict:
         raise HTTPException(404, "Call not found")
     if call["receiver_id"] != user["user_id"]:
         raise HTTPException(403, "Only receiver can accept")
-    if call["status"] != "RINGING":
-        raise HTTPException(409, f"Call not ringing (status={call['status']})")
+
+    status = call["status"]
+    # Re-accepting an already accepted/live call is a retry, not a conflict.
+    # The client used to open a second incoming screen after the first accept;
+    # tapping Accept there sent a second request, got 409, and the receiver
+    # never joined the caller's room. Return fresh, valid join credentials for
+    # the same uid/channel instead. Terminal or other-user states still fail.
+    if status not in ("RINGING", "ACCEPTED", "LIVE"):
+        raise HTTPException(409, f"Call is no longer available (status={status})")
 
     # Mint tokens BEFORE mutating the call. If this fails the call stays RINGING,
     # where the ring timeout and sweeper can still clean it up. Flipping to
@@ -309,33 +322,55 @@ async def accept_call(*, call_id: str, user: dict) -> dict:
         logger.exception("accept_call: token mint failed for %s", call_id)
         raise HTTPException(500, "Could not start the call audio. Please try again.")
 
-    now = datetime.now(timezone.utc)
-    result = await db.call_records.find_one_and_update(
-        {"call_id": call_id, "status": "RINGING"},
-        {"$set": {"status": "ACCEPTED", "accepted_at": now}},
-        return_document=True,
-    )
-    if not result:
-        raise HTTPException(409, "Call already handled")
+    already_accepted = status in ("ACCEPTED", "LIVE")
+    if status == "RINGING":
+        now = datetime.now(timezone.utc)
+        result = await db.call_records.find_one_and_update(
+            {"call_id": call_id, "status": "RINGING"},
+            {"$set": {"status": "ACCEPTED", "accepted_at": now}},
+            return_document=True,
+        )
+        if result:
+            call = result
+            await _clear_ring_lock(call["receiver_id"], call_id)
 
-    await _clear_ring_lock(call["receiver_id"], call_id)
-
-    await emit_to_user(
-        call["caller_id"],
-        "call_accepted",
-        {
-            "call_id": call_id,
-            "channel_name": call["channel_name"],
-            # Tokens are channel+uid bound, so each side needs its own.
-            "agora": {**caller_tokens, "peer_uid": receiver_uid},
-        },
-    )
-    await emit_to_user(call["caller_id"], "cancel_call_notification", {"call_id": call_id})
+            # Only the first RINGING -> ACCEPTED transition notifies the caller.
+            # Re-emitting on a retry would make the caller re-join Agora with the
+            # same uid and evict the participant who is already connected.
+            await emit_to_user(
+                call["caller_id"],
+                "call_accepted",
+                {
+                    "call_id": call_id,
+                    "channel_name": call["channel_name"],
+                    # Tokens are channel+uid bound, so each side needs its own.
+                    "agora": {**caller_tokens, "peer_uid": receiver_uid},
+                },
+            )
+            await emit_to_user(
+                call["caller_id"], "cancel_call_notification", {"call_id": call_id}
+            )
+        else:
+            # Another request won the atomic transition. If it accepted the
+            # call, this is still a successful retry; otherwise the call was
+            # rejected/cancelled between our read and update.
+            latest = await db.call_records.find_one({"call_id": call_id}, {"_id": 0})
+            if latest and latest.get("status") in ("ACCEPTED", "LIVE"):
+                call = latest
+                already_accepted = True
+            else:
+                raise HTTPException(409, "Call already handled")
 
     return {
         "success": True,
         "call_id": call_id,
         "channel_name": call["channel_name"],
+        "status": call.get("status", "ACCEPTED"),
+        "already_accepted": already_accepted,
+        "caller_id": call.get("caller_id"),
+        "caller_name": call.get("caller_name") or "Someone",
+        "caller_picture": call.get("caller_picture") or "",
+        "call_type": call.get("call_type", "AUDIO"),
         "agora": {**receiver_tokens, "peer_uid": caller_uid},
         "rate_per_minute": call["rate_per_minute"],
     }

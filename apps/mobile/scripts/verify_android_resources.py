@@ -30,6 +30,7 @@ ANDROID = os.path.join(ROOT, "android")
 APP_JSON = os.path.join(ROOT, "app.json")
 RES = os.path.join(ANDROID, "app", "src", "main", "res")
 MANIFEST = os.path.join(ANDROID, "app", "src", "main", "AndroidManifest.xml")
+SOUND_SOURCE = os.path.join(ROOT, "assets", "sounds", "sound_effect.mp3")
 
 DENSITIES = ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]
 
@@ -155,6 +156,27 @@ def check_notification_icons():
                 )
 
 
+def check_notification_sound():
+    """The custom call sound must exist and survive the config plugin."""
+    if not os.path.exists(SOUND_SOURCE):
+        err("missing assets/sounds/sound_effect.mp3 (custom call notification sound)")
+        return
+    source_size = os.path.getsize(SOUND_SOURCE)
+    if source_size < 1024:
+        err("assets/sounds/sound_effect.mp3 is empty or truncated")
+
+    if not os.path.isdir(RES):
+        return
+    installed = os.path.join(RES, "raw", "sound_effect.mp3")
+    if not os.path.exists(installed):
+        err(
+            "android res/raw/sound_effect.mp3 missing -- "
+            "plugins/withNotificationSound.js did not run"
+        )
+    elif os.path.getsize(installed) != source_size:
+        err("android res/raw/sound_effect.mp3 differs from the committed asset")
+
+
 # ── 4. manifest resources ────────────────────────────────────────────────────
 def collect_resources():
     """Names of every resource actually present in res/."""
@@ -166,6 +188,8 @@ def collect_resources():
         if os.path.isfile(full):
             continue
         if entry.startswith("drawable"):
+            names.update(os.path.splitext(f)[0] for f in os.listdir(full))
+        elif entry.startswith("raw"):
             names.update(os.path.splitext(f)[0] for f in os.listdir(full))
         elif entry.startswith("values"):
             with open(os.path.join(full, "colors.xml"), encoding="utf-8") as fh:
@@ -243,6 +267,7 @@ if __name__ == "__main__":
 
     cfg = check_app_json()
     check_notification_icons()
+    check_notification_sound()
     check_manifest()
     check_plugins(cfg)
 

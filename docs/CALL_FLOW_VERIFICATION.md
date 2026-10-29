@@ -11,12 +11,19 @@ parity, **P3** polish.
 ## 1. Push notifications
 
 ### 1.1 Verified wiring (works)
-- Token registered on login (`_layout` → `registerDevicePushToken` → `POST /profile/push-token`).
-- Server sends **data-only** high-priority FCM for `incoming_call`
-  (`push_service.send_push(..., data_only=True, channel_id="incoming_calls")`).
-- `index.js` registers `setBackgroundMessageHandler` → saves pending call +
-  `showIncomingCallNotification` (Notifee full-screen CALL category).
-- `consumePendingCall` on launch routes to `/incoming-call`.
+- Token registered on login and re-uploaded on foreground
+  (`_layout` → `registerDevicePushToken` / `syncPushTokenIfPermitted` →
+  `POST /profile/push-token`).
+- Server sends a **notification message** for `incoming_call`
+  (`push_service.send_to_user(..., data_only=False,
+  channel_id="incoming_calls_v2", sound="sound_effect")`). The OS draws it even
+  when the app is backgrounded/killed.
+- `index.js` `setBackgroundMessageHandler` only persists the pending payload;
+  it deliberately does not draw a second notification.
+- Foreground pushes route through `callRouter`; cold-start/background taps route
+  through `getInitialNotification` / `onNotificationOpenedApp`.
+- All four entry paths converge on one `openIncoming()` gate, which claims the
+  call before navigating.
 
 ### 1.2 Bugs / gaps
 
@@ -24,10 +31,10 @@ parity, **P3** polish.
 |----|-----|---------|-----|
 | P-1 | P1 | `push_service.send_push` calls the **blocking** `messaging.send()` inside an async function, stalling the event loop on every push | Wrap in `await asyncio.to_thread(messaging.send, message)` |
 | P-2 | P1 | Ring tone is a **remote URL** (`actions.google.com/...ogg`). Offline or blocked → silent ring. Old app used a reliable bundled sound | Bundle a local ringtone asset and loop it; keep the URL as last-resort fallback |
-| P-3 | P1 | Notifee channel `incoming_calls_v1` uses `importance: HIGH` only; not `MAX`, no `loopSound`, no `bypassDnd`, no `ongoing` sound loop. Not truly WhatsApp-style | `importance: MAX`, `category: CALL`, `vibration: true`, `sound: 'default'`, `fullScreenAction` + `pressAction: { id:'default', launchActivity:'default' }`, and `timeoutAfter` in sync with `CALL_RING_TIMEOUT_SECONDS` |
-| P-4 | P1 | No dedup guard between a socket `incoming_call` and a pending-call push on launch → possible **double navigation** to `/incoming-call` | Track `lastHandledCallIdRef` (like old `_layout`) and ignore duplicate call_ids within a window |
-| P-5 | P2 | iOS has **no VoIP/PushKit**; data-only APNs won't reliably wake a killed app | Out of scope now; document. Android is the target |
-| P-6 | P3 | Server `channel_id="incoming_calls"` vs client channel `incoming_calls_v1` mismatch (harmless while data-only, but fragile if a notification payload is ever added) | Align names |
+| P-3 | P1 | **Fixed** — channel is now `incoming_calls_v2`, `importance: MAX`, custom `sound_effect` raw resource, vibration and public visibility. Channel id was bumped because Android freezes channel settings after creation |
+| P-4 | P1 | **Fixed** — socket, FCM tap, persisted pending payload and `/calls/active` recovery all use one `openIncoming()` gate; the incoming screen also rejects duplicate routes and never pops the live call screen |
+| P-5 | P2 | iOS still has **no VoIP/PushKit**, but calls now use an APNs notification message with the custom sound instead of data-only, so a killed app gets a tappable notification even without CallKit |
+| P-6 | P3 | **Fixed** — backend and client both use `incoming_calls_v2` |
 
 ---
 

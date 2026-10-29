@@ -24,7 +24,7 @@
     },
     "android": {
       "package": "com.simple_talk.app",
-      "versionCode": 10,
+      "versionCode": 12,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B1F1A"
@@ -57,6 +57,7 @@
       "expo-font",
       "./plugins/withAndroidDuplicateLibsFix.js",
       "./plugins/withAndroidNotificationIcon.js",
+      "./plugins/withNotificationSound.js",
       [
         "expo-build-properties",
         {

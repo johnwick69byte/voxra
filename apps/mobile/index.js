@@ -42,56 +42,10 @@ if (hasFirebaseNative()) {
     messaging().onMessage(async (remoteMessage) => {
       const data = remoteMessage?.data || {};
       if (data.type === "incoming_call") {
-        try {
-          const notifeeModule = require("@notifee/react-native");
-          const notifee = notifeeModule.default || notifeeModule;
-          const { AndroidImportance } = notifeeModule;
-
-          const callId = String(data.call_id || "");
-          const callerName = String(data.caller_name || "Someone");
-          const callType = String(data.call_type || "AUDIO").toUpperCase();
-          const channelId = "incoming_calls_v1";
-
-          await notifee.createChannel({
-            id: channelId,
-            name: "Incoming Calls",
-            importance: AndroidImportance.MAX,
-            sound: "default",
-            vibration: true,
-            vibrationPattern: [300, 500, 300, 500],
-            bypassDnd: true,
-            lights: true,
-          });
-
-          const fullScreenIntent = { id: "full_screen", launchActivity: "default" };
-
-          await notifee.displayNotification({
-            id: `call_${callId}`,
-            title: `Incoming ${callType === "VIDEO" ? "Video" : "Audio"} Call`,
-            body: `${callerName} is calling you`,
-            data: { ...data, type: "incoming_call", action: "ring" },
-            android: {
-              channelId,
-              smallIcon: "ic_notification",
-              importance: AndroidImportance.MAX,
-              category: "call",
-              visibility: "public",
-              ongoing: true,
-              autoCancel: false,
-              loopSound: true,
-              lights: [0x00FF00, 300, 600],
-              fullScreenAction: { id: "full_screen", launchActivity: "default" },
-              pressAction: { id: "default", launchActivity: "default" },
-              actions: [
-                { title: "Accept", pressAction: { id: "accept", launchActivity: "default" } },
-                { title: "Decline", pressAction: { id: "decline" } },
-              ],
-              timeoutAfter: 45000,
-            },
-          });
-        } catch (e) {
-          console.warn("[FCM] foreground call notification failed:", e?.message || e);
-        }
+        // A notification message is not auto-displayed in the foreground.
+        // Route it into the single incoming-call gate instead of drawing a
+        // second notification; the in-app screen owns the ringtone/UI.
+        emitCallRoute({ ...data, action: "ring" });
         return;
       }
       // Non-call notifications: display via inAppNotifications
@@ -100,88 +54,16 @@ if (hasFirebaseNative()) {
       await displayGeneralNotification({ ...data, title, body });
     });
 
-    // A call arrives as a data message while the process is alive, or as a
-    // notification message (the killed/backgrounded path). Android renders the
-    // FCM notification itself, so we do NOT display a second one.
-    //
-    // The WhatsApp-style full-screen call UI comes from Notifee with
-    // fullScreenIntent, which drives Android Telecom. RNFirebase starts a
-    // headless JS task for background messages (see
-    // ReactNativeFirebaseMessagingReceiver), so this runs even when the app
-    // was swiped away -- provided the message is high priority, which the
-    // backend sets.
+    // A call arrives as a notification message. Android/iOS render it
+    // themselves in the background and killed states, using
+    // incoming_calls_v2 + the custom sound_effect resource. The headless task
+    // only persists the payload as a fallback for cold-start recovery; it must
+    // NOT draw a second notification.
     messaging().setBackgroundMessageHandler(async (remoteMessage) => {
       const data = remoteMessage?.data || {};
       if (data.type !== "incoming_call") return;
-
-      // The headless task runs in a SEPARATE JS context from the app, so
-      // in-memory routing cannot reach the UI. Persist it instead; _layout
-      // consumes this on mount, and the notification tap routes normally.
       const { savePendingCall } = require("./src/services/IncomingCallService");
       await savePendingCall({ ...data, action: "ring" });
-
-      // Display a Notifee notification with fullScreenIntent to launch the
-      // full-screen call UI. This runs in the headless JS task and works
-      // even when the app was killed/swiped away.
-      try {
-        const notifeeModule = require("@notifee/react-native");
-        const notifee = notifeeModule.default || notifeeModule;
-        const { AndroidImportance, AndroidCategory } = notifeeModule;
-
-        const channelId = "incoming_calls_v1";
-        const callId = String(data.call_id || "");
-        const callerName = String(data.caller_name || "Someone");
-        const callType = String(data.call_type || "AUDIO").toUpperCase();
-
-        // Create the channel if needed (idempotent)
-        await notifee.createChannel({
-          id: channelId,
-          name: "Incoming Calls",
-          importance: AndroidImportance.MAX,
-          sound: "default",
-          vibration: true,
-          vibrationPattern: [300, 500, 300, 500],
-          bypassDnd: true,
-          lights: true,
-        });
-
-        // Create a full-screen intent that launches the call screen
-        const fullScreenIntent = {
-          id: "full_screen",
-          launchActivity: "default",
-        };
-
-        await notifee.displayNotification({
-          id: `call_${callId}`,
-          title: `Incoming ${callType === "VIDEO" ? "Video" : "Audio"} Call`,
-          body: `${callerName} is calling you`,
-          data: {
-            ...data,
-            type: "incoming_call",
-            action: "ring",
-          },
-          android: {
-            channelId,
-            smallIcon: "ic_notification",
-            importance: AndroidImportance.MAX,
-            category: "call",
-            visibility: "public",
-            ongoing: true,
-            autoCancel: false,
-            loopSound: true,
-            lights: [0x00FF00, 300, 600],
-            fullScreenAction: fullScreenIntent,
-            pressAction: { id: "default", launchActivity: "default" },
-            actions: [
-              { title: "Accept", pressAction: { id: "accept", launchActivity: "default" } },
-              { title: "Decline", pressAction: { id: "decline" } },
-            ],
-            timeoutAfter: 45000,
-          },
-        });
-      } catch (e) {
-        console.warn("[FCM] background call notification failed:", e?.message || e);
-      }
     });
 
     // Tapped a notification that cold-started the app.

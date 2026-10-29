@@ -7,13 +7,16 @@ import {
   Platform,
   BackHandler,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import Toast from "react-native-toast-message";
 import { callsAPI } from "../src/services/api";
 import { PrimaryButton } from "../src/components/PrimaryButton";
 import { AppText, Avatar } from "../src/components/ui";
-import { cancelCallNotification } from "../src/services/IncomingCallService";
+import {
+  cancelCallNotification,
+  clearPendingCall,
+} from "../src/services/IncomingCallService";
 import { socketService } from "../src/services/socket";
 import { playRingtone, stopRingtone } from "../src/services/ringtone";
 import { ensureCallDisclaimer } from "../src/services/callDisclaimer";
@@ -22,10 +25,21 @@ import { useSecureCallScreen } from "../src/hooks/useSecureCallScreen";
 import { theme } from "../src/theme/tokens";
 import { APP_NAME } from "../src/theme/brand";
 import { useCallStore } from "../src/store/callStore";
+import {
+  buildCallParamsFromAccept,
+  buildCallParamsFromActive,
+  openCallScreen,
+} from "../src/services/callNavigation";
+
+// A second route pushed for the same call must never ring on top of the first.
+// Module scope is intentional: it catches duplicate routes before the store
+// update from the first screen has propagated to a second React tree.
+let visibleIncomingCallId: string | null = null;
 
 export default function IncomingCallScreen() {
   useSecureCallScreen(true);
   const router = useRouter();
+  const navigation = useNavigation();
   const params = useLocalSearchParams();
   const setIncoming = useCallStore((s) => s.setIncoming);
   const setIncomingOpen = useCallStore((s) => s.setIncomingOpen);
@@ -42,6 +56,22 @@ export default function IncomingCallScreen() {
   const autoAccept = params.autoAccept === "1";
   const incoming = useCallStore((s) => s.incoming);
   const dismissing = useRef(false);
+  const blockedDuplicate = useRef(false);
+  const autoAccepted = useRef(false);
+
+  // Runs before the ringing effects below. The duplicate route removes itself
+  // instead of leaving a second screen underneath the live call screen.
+  useEffect(() => {
+    if (visibleIncomingCallId) {
+      blockedDuplicate.current = true;
+      if (navigation.isFocused()) router.back();
+      return;
+    }
+    visibleIncomingCallId = callId;
+    return () => {
+      if (visibleIncomingCallId === callId) visibleIncomingCallId = null;
+    };
+  }, [callId, navigation, router]);
 
   /** Close this screen exactly once, whatever triggered it. */
   const dismiss = useCallback(() => {
@@ -49,10 +79,18 @@ export default function IncomingCallScreen() {
     dismissing.current = true;
     Vibration.cancel();
     stopRingtone();
+    clearPendingCall(callId).catch(() => {});
     setIncoming(null);
     setIncomingOpen(null);
-    router.back();
-  }, [router, setIncoming, setIncomingOpen]);
+    // A stale lower screen must never pop the live call screen. Only the
+    // focused incoming screen is allowed to navigate back.
+    if (
+      navigation.isFocused() &&
+      useCallStore.getState().activeCallId !== callId
+    ) {
+      router.back();
+    }
+  }, [callId, navigation, router, setIncoming, setIncomingOpen]);
 
   // Handle Android back button
   useEffect(() => {
@@ -64,6 +102,7 @@ export default function IncomingCallScreen() {
   }, [dismiss]);
 
   useEffect(() => {
+    if (blockedDuplicate.current) return;
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, {
@@ -89,7 +128,9 @@ export default function IncomingCallScreen() {
   }, []);
 
   useEffect(() => {
-    if (autoAccept) accept();
+    if (!autoAccept || autoAccepted.current || blockedDuplicate.current) return;
+    autoAccepted.current = true;
+    accept();
   }, [autoAccept]);
 
   // The caller can give up, or the server can time the ring out. Either way this
@@ -102,7 +143,12 @@ export default function IncomingCallScreen() {
       sawIncoming.current = true;
       return;
     }
-    if (sawIncoming.current && incoming === null) dismiss();
+    if (sawIncoming.current && incoming === null) {
+      // Accepting clears the store while this screen is still mounted; the
+      // navigation gate has already claimed the call screen. Do not pop it.
+      if (useCallStore.getState().activeCallId === callId) return;
+      dismiss();
+    }
   }, [incoming, callId, dismiss]);
 
   useEffect(() => {
@@ -135,6 +181,7 @@ export default function IncomingCallScreen() {
   }, [countdown, callId, dismiss]);
 
   const accept = async () => {
+    if (busy || dismissing.current || blockedDuplicate.current) return;
     const agreed = await ensureCallDisclaimer();
     if (!agreed) return;
     const permitted = await ensureCallPermissions(String(callType).toUpperCase() === "VIDEO", { interactive: true });
@@ -148,31 +195,55 @@ export default function IncomingCallScreen() {
     try {
       await cancelCallNotification(callId);
       const res = await callsAPI.accept(callId);
-      setIncoming(null);
       dismissing.current = true;
-      router.replace({
-        pathname: "/call-screen",
-        params: {
+      setIncoming(null);
+      setIncomingOpen(null);
+      openCallScreen(
+        buildCallParamsFromAccept({
           callId,
-          channelName: res.data.channel_name || channelName,
           callType,
-          role: "receiver",
+          channelName,
           peerName: callerName,
-          peerId: String(params.callerId || res.data?.caller_id || ""),
-          agoraToken: res.data.agora?.token || "",
-          agoraAppId: res.data.agora?.app_id || "",
-          agoraUid: String(res.data.agora?.uid ?? ""),
-        },
-      });
+          peerId: String(params.callerId || ""),
+          response: res.data,
+        })
+      );
     } catch (e: any) {
-      Toast.show({ type: "error", text1: "Accept failed", text2: e?.response?.data?.detail });
-      router.back();
+      // A second Accept (or a retry after the first request reached the
+      // server) is not an error when the call is already accepted. Recover
+      // the authoritative class state instead of showing a failure.
+      if (e?.response?.status === 409) {
+        try {
+          const activeRes = await callsAPI.active({ timeout: 4000 });
+          const active = activeRes.data;
+          if (
+            active?.call?.call_id === callId &&
+            ["ACCEPTED", "LIVE"].includes(active.call.status)
+          ) {
+            dismissing.current = true;
+            setIncoming(null);
+            setIncomingOpen(null);
+            const callParams = buildCallParamsFromActive(active);
+            if (callParams) openCallScreen(callParams);
+            return;
+          }
+        } catch {
+          /* fall through to the visible error */
+        }
+      }
+      dismissing.current = false;
+      Toast.show({
+        type: "error",
+        text1: "Accept failed",
+        text2: e?.response?.data?.detail || "Please try again.",
+      });
     } finally {
       setBusy(false);
     }
   };
 
   const decline = async () => {
+    if (busy || dismissing.current) return;
     setBusy(true);
     await stopRingtone();
     Vibration.cancel();

@@ -1,22 +1,26 @@
 import { Platform } from "react-native";
 
 /**
- * Notification channel for ordinary push messages.
+ * Android notification channels.
  *
- * The backend pins `channel_id: "app_notifications"` on every FCM notification
- * message (earnings, withdrawal approvals, support replies, broadcasts). If that
+ * The backend pins `channel_id` on every FCM notification message. If the
  * channel does not exist on the device, Android routes the message to a
- * fallback channel: no sound, and the launcher icon instead of our white
- * silhouette. So it must exist before the first such push arrives.
+ * fallback channel: no custom sound, and the launcher icon instead of our white
+ * silhouette. Both channels therefore have to exist before the first push.
  *
- * The call channels (`incoming_calls_v1`, `ongoing_calls`) are deliberately NOT
- * created here -- IncomingCallService / CallForegroundService own them, because
- * those services also run in a headless context when the app is killed, and
- * Android ignores changes to an existing channel after creation. Duplicating
- * the definitions would only create drift.
+ * Android freezes a channel's sound/vibration settings at creation time. The
+ * incoming-call channel is v2 (not v1) because v1 was shipped with the system
+ * default sound; existing installs would keep the old sound forever if we
+ * reused the same id. If the sound changes again, bump this id.
+ *
+ * `sound_effect.mp3` is installed into `android/app/src/main/res/raw/` by
+ * plugins/withNotificationSound.js. Notifee/FCM refer to the raw resource by
+ * its name without the file extension.
  */
 
 export const CHANNEL_DEFAULT = "app_notifications";
+export const CHANNEL_INCOMING_CALLS = "incoming_calls_v2";
+export const INCOMING_CALL_SOUND = "sound_effect";
 
 let ready: Promise<void> | null = null;
 
@@ -26,8 +30,7 @@ export function ensureNotificationChannels(): Promise<void> {
 
   ready = (async () => {
     try {
-      // Required lazily so this module is safe to import on iOS, where the
-      // native Notifee module is not linked.
+      // Required lazily so this module is safe to import on iOS.
       const notifee = (await import("@notifee/react-native")).default;
       const { AndroidImportance } = require("@notifee/react-native");
 
@@ -38,7 +41,18 @@ export function ensureNotificationChannels(): Promise<void> {
         sound: "default",
       });
 
-      console.log("[notif] default channel ready");
+      await notifee.createChannel({
+        id: CHANNEL_INCOMING_CALLS,
+        name: "Incoming Calls",
+        importance: AndroidImportance.MAX,
+        sound: INCOMING_CALL_SOUND,
+        vibration: true,
+        vibrationPattern: [300, 500, 300, 500],
+        bypassDnd: true,
+        lights: true,
+      });
+
+      console.log("[notif] notification channels ready");
     } catch (e) {
       // Never block startup on notifications, but allow a later retry.
       console.warn("[notif] channel setup failed", e);

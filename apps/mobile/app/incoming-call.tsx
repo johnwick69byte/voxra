@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import {
   View,
   StyleSheet,
-  Image,
   Animated,
   Vibration,
   Platform,
@@ -13,7 +12,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Toast from "react-native-toast-message";
 import { callsAPI } from "../src/services/api";
 import { PrimaryButton } from "../src/components/PrimaryButton";
-import { AppText } from "../src/components/ui";
+import { AppText, Avatar } from "../src/components/ui";
 import { cancelCallNotification } from "../src/services/IncomingCallService";
 import { socketService } from "../src/services/socket";
 import { playRingtone, stopRingtone } from "../src/services/ringtone";
@@ -36,6 +35,7 @@ export default function IncomingCallScreen() {
 
   const callId = String(params.callId || "");
   const callerName = String(params.callerName || "Someone");
+  const callerPicture = String(params.callerPicture || "").trim();
   const callType = String(params.callType || "AUDIO");
   const channelName = String(params.channelName || "");
   const declineToken = String(params.declineToken || "");
@@ -192,8 +192,10 @@ export default function IncomingCallScreen() {
       <AppText style={styles.brand}>{APP_NAME}</AppText>
       <AppText style={styles.type}>Incoming {callType.toLowerCase()} call</AppText>
       <Animated.View style={{ transform: [{ scale: pulse }] }}>
-        <Image
-          source={{ uri: String(params.callerPicture || "https://i.pravatar.cc/200") }}
+        <Avatar
+          uri={callerPicture || null}
+          name={callerName}
+          size={140}
           style={styles.avatar}
         />
       </Animated.View>
@@ -232,8 +234,6 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.body,
   },
   avatar: {
-    width: 140,
-    height: 140,
     borderRadius: 70,
     borderWidth: 3,
     borderColor: theme.colors.accent,

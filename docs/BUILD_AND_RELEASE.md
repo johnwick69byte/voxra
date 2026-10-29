@@ -270,8 +270,9 @@ EXPO_PUBLIC_APP_SCHEME=simpletalk
 
 **`REDIS_URL` (or the `UPSTASH_*` pair) is mandatory, not optional.** Without it
 creator online/offline status can never update, so the Home "Active" filter stays
-empty and every creator looks offline. `GET /api/healthz` now reports
-`redis_configured` / `redis_ok` — check it after deploying.
+empty and every creator looks offline. `GET /api/healthz` reports
+`redis_configured` / `redis_ok` and the active `jwt_expire_days` — check it after
+deploying.
 ```
 BACKEND_URL=https://voxra-dkfe.onrender.com
 ENVIRONMENT=production
@@ -279,6 +280,7 @@ ALLOW_ADMIN_BOOTSTRAP=false
 MONGODB_URI=…            MONGODB_DB=voxora
 REDIS_URL=…              UPSTASH_REDIS_REST_URL=…  UPSTASH_REDIS_REST_TOKEN=…
 JWT_SECRET=…             ADMIN_JWT_SECRET=…        CORS_ORIGINS=…
+JWT_EXPIRE_DAYS=45
 SOCKETIO_CORS_ORIGINS=*
 AGORA_APP_ID=…           AGORA_APP_CERTIFICATE=…
 MESSAGECENTRAL_CUSTOMER_ID=…  MESSAGECENTRAL_API_KEY=…  MESSAGECENTRAL_EMAIL=…
@@ -297,6 +299,11 @@ RECHARGE_COMMISSION_RATE=0.06  RECHARGE_GATEWAY_RATE=0.0
 REFERRAL_BONUS_REFERRER=25      REFERRAL_BONUS_REFEREE=20
 DEEP_LINK_SCHEME=simpletalk
 ```
+
+`JWT_EXPIRE_DAYS` is in calendar days. Keep `JWT_SECRET` unchanged after launch —
+rotating it invalidates every existing session. Tokens issued before this deploy
+keep their original expiry, so users need one fresh sign-in to receive a 45-day
+token.
 
 ### Admin / Web
 ```

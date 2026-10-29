@@ -112,6 +112,20 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
     if not available:
         raise HTTPException(409, reason)
 
+    # Fans get a neutral user icon on the incoming-call screen. Creators show
+    # their first gallery photo, with their avatar only as a fallback.
+    caller_type = str(caller.get("user_type") or "")
+    caller_picture = ""
+    if caller_type == "creator":
+        caller_profile = await db.creator_profiles.find_one(
+            {"user_id": caller["user_id"]}, {"_id": 0, "images": 1}
+        )
+        images = (caller_profile or {}).get("images") or []
+        if images:
+            caller_picture = str(images[0])
+        else:
+            caller_picture = str(caller.get("picture") or "")
+
     rate_key = "video_rate_per_minute" if call_type == "VIDEO" else "audio_rate_per_minute"
     rate = float(profile.get(rate_key) or (settings.min_video_rate if call_type == "VIDEO" else settings.min_audio_rate))
     min_balance = (rate / 60.0) * 30  # 30 seconds worth
@@ -197,7 +211,8 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
                 "call_id": call_id,
                 "caller_id": caller["user_id"],
                 "caller_name": caller.get("name") or "Someone",
-                "caller_picture": caller.get("picture") or "",
+                "caller_picture": caller_picture,
+                "caller_user_type": caller_type,
                 "call_type": call_type,
                 "channel_name": channel_name,
                 "decline_token": decline_token,
@@ -214,7 +229,8 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
         "call_id": call_id,
         "caller_id": caller["user_id"],
         "caller_name": caller.get("name"),
-        "caller_picture": caller.get("picture"),
+        "caller_picture": caller_picture,
+        "caller_user_type": caller_type,
         "call_type": call_type,
         "channel_name": channel_name,
         "decline_token": decline_token,

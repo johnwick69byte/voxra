@@ -4,3 +4,4 @@ export const APP_SCHEME = "simpletalk";
 export const APP_PACKAGE = "com.simple_talk.app";
 export const AUTH_TOKEN_KEY = "simpletalk_token";
 export const AUTH_TOKEN_KEY_LEGACY = "voxora_token";
+export const AUTH_USER_KEY = "simpletalk_user";

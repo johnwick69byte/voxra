@@ -227,7 +227,7 @@ async def browse_creators(
                 **p,
                 "name": u.get("name"),
                 "username": u.get("username"),
-                "picture": u.get("picture") or (p.get("images") or [None])[0],
+                "picture": (p.get("images") or [None])[0] or u.get("picture"),
                 "status": status_str,
                 "avg_rating": p.get("avg_rating"),
                 "review_count": p.get("review_count", 0),
@@ -441,7 +441,8 @@ async def get_creator(creator_id: str, user: dict = Depends(require_user)):
             **profile,
             "name": u.get("name") if u else None,
             "username": u.get("username") if u else None,
-            "picture": u.get("picture") if u else None,
+            "picture": (profile.get("images") or [None])[0]
+            or (u.get("picture") if u else None),
             "status": status,
             "is_following": bool(following),
             "avg_rating": round(rating_pipe[0]["avg"], 1) if rating_pipe else None,
@@ -577,7 +578,7 @@ async def list_following(user: dict = Depends(require_user)):
                 {
                     **profile,
                     "name": u.get("name"),
-                    "picture": u.get("picture"),
+                    "picture": (profile.get("images") or [None])[0] or u.get("picture"),
                     "status": status,
                 }
             )

@@ -1,7 +1,7 @@
 import { View, StyleSheet, Pressable, ScrollView, Alert, Modal, TextInput } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useAuthStore } from "../../src/store/authStore";
 import { authAPI } from "../../src/services/api";
 import { AppText, Avatar } from "../../src/components/ui";
@@ -41,6 +41,39 @@ export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
   const router = useRouter();
   const isCreator = user?.user_type === "creator";
+
+  const [creatorPhoto, setCreatorPhoto] = useState<string | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      if (!isCreator) {
+        setCreatorPhoto(null);
+        return () => {
+          active = false;
+        };
+      }
+      authAPI
+        .me()
+        .then((res) => {
+          if (!active) return;
+          const images = res.data?.creator_profile?.images;
+          const firstPhoto = Array.isArray(images) ? images[0] : null;
+          const picture = res.data?.user?.picture;
+          setCreatorPhoto(
+            (typeof firstPhoto === "string" && firstPhoto) ||
+              (typeof picture === "string" && picture) ||
+              null
+          );
+        })
+        .catch(() => {
+          if (active) setCreatorPhoto(null);
+        });
+      return () => {
+        active = false;
+      };
+    }, [isCreator, user?.user_id])
+  );
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -105,7 +138,12 @@ export default function ProfileScreen() {
 
       <View style={styles.profileCard}>
         <View style={styles.avatarRing}>
-          <Avatar uri={user?.picture} name={user?.name || "You"} size={88} />
+          <Avatar
+            uri={isCreator ? creatorPhoto : null}
+            name={user?.name || "You"}
+            size={88}
+            style={{ borderRadius: 44 }}
+          />
         </View>
         <AppText style={styles.name}>{user?.name || "User"}</AppText>
         <AppText variant="caption">@{user?.username || "—"}</AppText>
@@ -226,7 +264,7 @@ const styles = StyleSheet.create({
   },
   avatarRing: {
     padding: 4,
-    borderRadius: 34,
+    borderRadius: 999,
     borderWidth: 2,
     borderColor: theme.colors.brand,
     marginBottom: 14,

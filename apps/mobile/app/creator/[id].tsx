@@ -75,9 +75,8 @@ export default function CreatorProfile() {
 
   const photos = useMemo(() => {
     if (!creator) return [];
-    const imgs = [...(creator.images || [])];
-    if (creator.picture && !imgs.includes(creator.picture)) imgs.unshift(creator.picture);
-    if (!imgs.length) imgs.push(`https://i.pravatar.cc/800?u=${creator.user_id}`);
+    const imgs = [...(creator.images || [])].filter(Boolean);
+    if (!imgs.length && creator.picture) imgs.push(creator.picture);
     return imgs;
   }, [creator]);
 
@@ -200,19 +199,26 @@ export default function CreatorProfile() {
       </Pressable>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 130 }} showsVerticalScrollIndicator={false}>
-        <FlatList
-          data={photos}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          keyExtractor={(uri, i) => `${uri}-${i}`}
-          onMomentumScrollEnd={(e) => {
-            const idx = Math.round(e.nativeEvent.contentOffset.x / W);
-            setPhotoIdx(idx);
-          }}
-          renderItem={({ item }) => <Image source={{ uri: item }} style={styles.hero} />}
-          style={{ height: Math.min(H * 0.5, 440) }}
-        />
+        {photos.length ? (
+          <FlatList
+            data={photos}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(uri, i) => `${uri}-${i}`}
+            onMomentumScrollEnd={(e) => {
+              const idx = Math.round(e.nativeEvent.contentOffset.x / W);
+              setPhotoIdx(idx);
+            }}
+            renderItem={({ item }) => <Image source={{ uri: item }} style={styles.hero} />}
+            style={{ height: Math.min(H * 0.5, 440) }}
+          />
+        ) : (
+          <View style={styles.heroFallback}>
+            <Ionicons name="person" size={72} color={theme.colors.textMuted} />
+            <AppText variant="caption">No photos yet</AppText>
+          </View>
+        )}
         {photos.length > 1 ? (
           <View style={styles.dots}>
             {photos.map((_, i) => (
@@ -473,6 +479,14 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.2)",
   },
   hero: { width: W, height: Math.min(H * 0.5, 440), backgroundColor: theme.colors.brandDark },
+  heroFallback: {
+    width: W,
+    height: Math.min(H * 0.5, 440),
+    backgroundColor: theme.colors.brandDark,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
   dots: {
     flexDirection: "row",
     justifyContent: "center",

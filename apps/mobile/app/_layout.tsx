@@ -34,6 +34,7 @@ export default function RootLayout() {
   const setIncoming = useCallStore((s) => s.setIncoming);
   const setActiveCall = useCallStore((s) => s.setActiveCall);
   const router = useRouter();
+  const hadSession = useRef(false);
 
   useEffect(() => {
     hydrate();
@@ -53,6 +54,20 @@ export default function RootLayout() {
       unsub?.();
     };
   }, []);
+
+  // If an already-authenticated session is rejected later (expired or revoked
+  // token), send the user back to login. Do nothing on a cold start with no
+  // token, so public/deep-linked screens are not hijacked.
+  useEffect(() => {
+    if (token) {
+      hadSession.current = true;
+      return;
+    }
+    if (!loading && hadSession.current) {
+      hadSession.current = false;
+      router.replace("/(auth)/login");
+    }
+  }, [token, loading, router]);
 
   useEffect(() => {
     if (fontsLoaded && !loading) {

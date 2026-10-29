@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Image, StyleSheet, View, ViewStyle } from "react-native";
-import { AppText } from "./Text";
+import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../../theme/tokens";
 
 export function Avatar({
@@ -13,17 +14,36 @@ export function Avatar({
   size?: number;
   style?: ViewStyle;
 }) {
-  const fallback = `https://i.pravatar.cc/${size * 2}?u=${encodeURIComponent(name || "simpletalk")}`;
-  const initial = (name || "?").trim().charAt(0).toUpperCase();
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const imageUri = typeof uri === "string" ? uri.trim() : "";
+  const showImage = !!imageUri && failedUri !== imageUri;
+  const label = name?.trim() || "Profile";
+
   return (
-    <View style={[{ width: size, height: size, borderRadius: size * 0.32, overflow: "hidden" }, style]}>
-      {uri || name ? (
-        <Image source={{ uri: uri || fallback }} style={{ width: size, height: size }} />
+    <View
+      accessibilityRole="image"
+      accessibilityLabel={label}
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size * 0.32,
+          overflow: "hidden",
+          backgroundColor: theme.colors.surface,
+        },
+        style,
+      ]}
+    >
+      {showImage ? (
+        <Image
+          source={{ uri: imageUri }}
+          style={{ width: size, height: size }}
+          resizeMode="cover"
+          onError={() => setFailedUri(imageUri)}
+        />
       ) : (
         <View style={[styles.fallback, { width: size, height: size }]}>
-          <AppText style={{ color: "#fff", fontFamily: theme.font.bodyBold, fontSize: size * 0.36 }}>
-            {initial}
-          </AppText>
+          <Ionicons name="person" size={Math.round(size * 0.46)} color={theme.colors.brandLight} />
         </View>
       )}
     </View>
@@ -32,7 +52,7 @@ export function Avatar({
 
 const styles = StyleSheet.create({
   fallback: {
-    backgroundColor: theme.colors.brand,
+    backgroundColor: theme.colors.backgroundElevated,
     alignItems: "center",
     justifyContent: "center",
   },

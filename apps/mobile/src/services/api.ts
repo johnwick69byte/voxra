@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { type AxiosRequestConfig } from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AUTH_TOKEN_KEY, AUTH_TOKEN_KEY_LEGACY } from "../theme/brand";
 
@@ -29,7 +29,7 @@ export const authAPI = {
     user_type?: string,
     country_code = "+91"
   ) => api.post("/auth/otp/verify", { phone, otp, verification_id, user_type, country_code }),
-  me: () => api.get("/auth/me"),
+  me: (config?: AxiosRequestConfig) => api.get("/auth/me", config),
   completeProfile: (data: Record<string, unknown>) =>
     api.post("/auth/complete-profile", data),
   checkUsername: (username: string) =>

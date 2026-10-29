@@ -90,7 +90,7 @@ export default function FollowingScreen() {
         ListEmptyComponent={<EmptyState title="Nothing here yet" subtitle="Follow creators to see them here." />}
         renderItem={({ item }) => (
           <Pressable style={styles.followRow} onPress={() => router.push(`/creator/${item.user_id}`)}>
-            <Avatar uri={item.picture || (item.images || [])[0]} name={item.name} size={52} />
+            <Avatar uri={(item.images || [])[0] || item.picture} name={item.name} size={52} />
             <View style={{ flex: 1, marginLeft: 12 }}>
               <AppText style={styles.name}>{item.name}</AppText>
               <StatusDot status={item.status} />

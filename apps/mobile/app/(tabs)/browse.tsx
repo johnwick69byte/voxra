@@ -9,7 +9,6 @@ import {
   Pressable,
   ScrollView,
   Modal,
-  Switch,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -54,6 +53,7 @@ export default function BrowseScreen() {
   const [total, setTotal] = useState(0);
 
   const [dnd, setDnd] = useState(false);
+  const [dndBusy, setDndBusy] = useState(false);
   const [earnings, setEarnings] = useState(0);
   // Set when the signed-in user is a creator whose verification is still under
   // review: they can use the app, but cannot receive calls yet.
@@ -159,6 +159,32 @@ export default function BrowseScreen() {
     }
   };
 
+  const updateAvailability = async (nextDnd: boolean) => {
+    if (!isCreator || dndBusy || nextDnd === dnd) return;
+    setDndBusy(true);
+    try {
+      const res = await creatorsAPI.toggleDnd();
+      const updated =
+        typeof res.data?.is_dnd === "boolean" ? res.data.is_dnd : !dnd;
+      setDnd(updated);
+      Toast.show({
+        type: "success",
+        text1: updated ? "DND enabled" : "You're available",
+        text2: updated
+          ? "Incoming calls are paused until you switch back."
+          : "You can receive audio and video calls again.",
+      });
+    } catch (e: any) {
+      Toast.show({
+        type: "error",
+        text1: "Could not update availability",
+        text2: e?.response?.data?.detail || "Please try again.",
+      });
+    } finally {
+      setDndBusy(false);
+    }
+  };
+
   // Live presence: the server broadcasts creator_status on connect, disconnect,
   // ring, reject and call end. Applying it here keeps the Active filter and the
   // status dots accurate without a manual refresh.
@@ -229,27 +255,117 @@ export default function BrowseScreen() {
 
       {isCreator ? (
         <View style={styles.creatorBanner}>
-          <View style={{ flex: 1 }}>
-            
-            <AppText style={styles.earnSmall}>₹{earnings.toFixed(0)}</AppText>
+          <View style={styles.creatorBannerTop}>
+            <View>
+              <AppText variant="label">Earnings balance</AppText>
+              <AppText style={styles.earnSmall}>₹{earnings.toFixed(0)}</AppText>
+            </View>
+            <View
+              style={[
+                styles.availabilityBadge,
+                dnd ? styles.availabilityBadgeDnd : styles.availabilityBadgeAvailable,
+              ]}
+            >
+              {dndBusy ? (
+                <ActivityIndicator
+                  size="small"
+                  color={dnd ? theme.colors.dnd : theme.colors.online}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.availabilityDot,
+                    { backgroundColor: dnd ? theme.colors.dnd : theme.colors.online },
+                  ]}
+                />
+              )}
+              <AppText
+                style={[
+                  styles.availabilityBadgeText,
+                  { color: dnd ? theme.colors.dnd : theme.colors.online },
+                ]}
+              >
+                {dndBusy ? "Updating" : dnd ? "DND" : "Available"}
+              </AppText>
+            </View>
           </View>
+
           <View style={styles.dndToggle}>
-            <AppText style={styles.dndLabel}>
-              {dnd ? "Do Not Disturb" : "Available for calls"}
-            </AppText>
-            <Switch
-              value={dnd}
-              onValueChange={async (value) => {
-                const res = await creatorsAPI.toggleDnd();
-                setDnd(res.data.is_dnd);
-                Toast.show({
-                  type: "success",
-                  text1: res.data.is_dnd ? "Do Not Disturb enabled" : "You're available for calls",
-                });
-              }}
-              trackColor={{ false: theme.colors.brand, true: theme.colors.dnd }}
-              thumbColor={theme.colors.onBrand}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Set status to Available"
+              accessibilityState={{ selected: !dnd, disabled: dndBusy }}
+              disabled={dndBusy}
+              onPress={() => updateAvailability(false)}
+              style={({ pressed }) => [
+                styles.dndOption,
+                !dnd && styles.dndOptionAvailableOn,
+                dndBusy && styles.dndOptionDisabled,
+                pressed && !dndBusy && styles.dndOptionPressed,
+              ]}
+            >
+              <Ionicons
+                name="checkmark-circle"
+                size={18}
+                color={!dnd ? theme.colors.online : theme.colors.textMuted}
+              />
+              <AppText
+                style={[
+                  styles.dndOptionText,
+                  { color: !dnd ? theme.colors.online : theme.colors.textSecondary },
+                ]}
+              >
+                Available
+              </AppText>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Set status to Do Not Disturb"
+              accessibilityState={{ selected: dnd, disabled: dndBusy }}
+              disabled={dndBusy}
+              onPress={() => updateAvailability(true)}
+              style={({ pressed }) => [
+                styles.dndOption,
+                dnd && styles.dndOptionDndOn,
+                dndBusy && styles.dndOptionDisabled,
+                pressed && !dndBusy && styles.dndOptionPressed,
+              ]}
+            >
+              <Ionicons
+                name="moon"
+                size={17}
+                color={dnd ? theme.colors.dnd : theme.colors.textMuted}
+              />
+              <AppText
+                style={[
+                  styles.dndOptionText,
+                  { color: dnd ? theme.colors.dnd : theme.colors.textSecondary },
+                ]}
+              >
+                DND
+              </AppText>
+            </Pressable>
+          </View>
+
+          <View style={styles.dndHelpRow}>
+            <Ionicons
+              name={dnd ? "moon-outline" : callsBlocked ? "time-outline" : "call-outline"}
+              size={15}
+              color={
+                dnd
+                  ? theme.colors.textMuted
+                  : callsBlocked
+                    ? theme.colors.warning
+                    : theme.colors.brandLight
+              }
             />
+            <AppText variant="caption" style={styles.dndInfo}>
+              {dnd
+                ? "Incoming calls are paused. Your profile stays visible to fans."
+                : callsBlocked
+                  ? "Calls unlock after verification. Your availability applies once approved."
+                  : "You're visible and ready to receive audio and video calls."}
+            </AppText>
           </View>
         </View>
       ) : null}
@@ -345,7 +461,7 @@ export default function BrowseScreen() {
             <Animated.View entering={FadeIn.delay(Math.min(index * 30, 180)).duration(theme.motion.statusFade)}>
               <Card onPress={() => router.push(`/creator/${item.user_id}`)}>
                 <View style={styles.row}>
-                  <Avatar uri={item.picture} name={item.name} size={72} />
+                  <Avatar uri={(item.images || [])[0] || item.picture} name={item.name} size={72} />
                   <View style={{ flex: 1 }}>
                     <View style={styles.nameRow}>
                       <AppText style={styles.name} numberOfLines={1}>
@@ -477,9 +593,7 @@ const styles = StyleSheet.create({
   },
   bellBadgeText: { color: "#fff", fontSize: 10, fontFamily: theme.font.bodyBold },
   creatorBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+    gap: 14,
     marginHorizontal: 20,
     marginBottom: 12,
     padding: 16,
@@ -488,7 +602,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
+  creatorBannerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   earnSmall: { fontFamily: theme.font.display, fontSize: 26, color: theme.colors.text, marginTop: 2 },
+  availabilityBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+  },
+  availabilityBadgeAvailable: {
+    backgroundColor: "rgba(34,197,94,0.10)",
+    borderColor: "rgba(34,197,94,0.28)",
+  },
+  availabilityBadgeDnd: {
+    backgroundColor: "rgba(239,68,68,0.10)",
+    borderColor: "rgba(239,68,68,0.30)",
+  },
+  availabilityDot: { width: 7, height: 7, borderRadius: 4 },
+  availabilityBadgeText: {
+    fontFamily: theme.font.bodyBold,
+    fontSize: 11,
+    letterSpacing: 0.4,
+  },
   reviewBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -609,13 +751,42 @@ const styles = StyleSheet.create({
   sheetActions: { flexDirection: "row", gap: 10, marginTop: 26 },
   dndToggle: {
     flexDirection: "row",
+    gap: 4,
+    padding: 4,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.backgroundElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  dndOption: {
+    flex: 1,
+    minHeight: 44,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    width: "100%",
+    justifyContent: "center",
+    gap: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
-  dndLabel: {
-    fontFamily: theme.font.bodySemi,
-    fontSize: 16,
-    color: theme.colors.text,
+  dndOptionAvailableOn: {
+    backgroundColor: "rgba(34,197,94,0.14)",
+    borderColor: "rgba(34,197,94,0.35)",
   },
+  dndOptionDndOn: {
+    backgroundColor: "rgba(239,68,68,0.13)",
+    borderColor: "rgba(239,68,68,0.35)",
+  },
+  dndOptionDisabled: { opacity: 0.65 },
+  dndOptionPressed: { opacity: 0.82 },
+  dndOptionText: {
+    fontFamily: theme.font.bodyBold,
+    fontSize: 14,
+  },
+  dndHelpRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 7,
+  },
+  dndInfo: { flex: 1, lineHeight: 18 },
 });

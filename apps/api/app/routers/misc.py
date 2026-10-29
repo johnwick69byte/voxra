@@ -38,6 +38,7 @@ async def healthz():
     """
     from app.core.database_redis import get_redis
 
+    settings = get_settings()
     r = get_redis()
     redis_ok = False
     if r is not None:
@@ -53,11 +54,12 @@ async def healthz():
         "redis_configured": r is not None,
         "redis_ok": redis_ok,
         "firebase_configured": bool(
-            get_settings().firebase_credentials_path
-            or get_settings().firebase_credentials_json
+            settings.firebase_credentials_path
+            or settings.firebase_credentials_json
         ),
         "payq_configured": payq_service.configured(),
         "payq_webhook_configured": payq_service.webhook_configured(),
+        "jwt_expire_days": settings.jwt_expire_days,
     }
 
 

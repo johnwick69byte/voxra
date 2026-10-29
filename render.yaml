@@ -15,7 +15,7 @@ services:
       - key: MONGODB_DB
         value: voxora
       - key: JWT_EXPIRE_DAYS
-        value: "30"
+        value: "45"
       - key: COMMISSION_RATE
         value: "0.15"
       - key: WITHDRAWAL_COMMISSION_RATE
@@ -63,6 +63,7 @@ services:
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
+      # Rotating this invalidates every existing user session. Keep it stable.
       - key: JWT_SECRET
         sync: false
       - key: ADMIN_JWT_SECRET

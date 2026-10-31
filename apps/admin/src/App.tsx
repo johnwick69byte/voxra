@@ -14,6 +14,7 @@ import Support from "./pages/Support";
 import Broadcast from "./pages/Broadcast";
 import Health from "./pages/Health";
 import Audit from "./pages/Audit";
+import Monitor from "./pages/Monitor";
 
 function Shell({ children }: { children: React.ReactNode }) {
   const nav = useNavigate();
@@ -73,6 +74,7 @@ export default function App() {
         <Route path="/broadcast" element={<Shell><Broadcast /></Shell>} />
         <Route path="/audit" element={<Shell><Audit /></Shell>} />
         <Route path="/health" element={<Shell><Health /></Shell>} />
+        <Route path="/monitor" element={<Monitor />} />
       </Routes>
     </BrowserRouter>
   );

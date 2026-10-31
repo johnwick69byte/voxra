@@ -148,10 +148,13 @@ export default function LiveOps() {
                     onClick={async () => {
                       try {
                         const r = await adminAPI.monitorToken(c.channel_name);
-                        await navigator.clipboard?.writeText(
-                          `${r.data.appId} / ${r.data.channel_name} / ${r.data.token}`
-                        );
-                        toast.success("Spectator token copied to clipboard");
+                        const d = r.data;
+                        const params = new URLSearchParams({
+                          appId: d.appId,
+                          channel: d.channel_name,
+                          token: d.token,
+                        });
+                        window.open(`/monitor?${params.toString()}`, "_blank", "width=1200,height=800");
                       } catch {
                         toast.error("Could not generate monitor token");
                       }

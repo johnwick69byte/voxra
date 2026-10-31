@@ -14,6 +14,7 @@ import Support from "./pages/Support";
 import Broadcast from "./pages/Broadcast";
 import Health from "./pages/Health";
 import Audit from "./pages/Audit";
+import Wallets from "./pages/Wallets";
 import Monitor from "./pages/Monitor";
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -29,6 +30,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         <NavLink to="/" end>Overview</NavLink>
         <NavLink to="/financial">Financial</NavLink>
         <NavLink to="/live">Live ops</NavLink>
+        <NavLink to="/wallets">Wallets</NavLink>
         <NavLink to="/creators">Creators</NavLink>
         <NavLink to="/calls">Call logs</NavLink>
         <NavLink to="/missed">Missed calls</NavLink>
@@ -73,7 +75,7 @@ export default function App() {
         <Route path="/support" element={<Shell><Support /></Shell>} />
         <Route path="/broadcast" element={<Shell><Broadcast /></Shell>} />
         <Route path="/audit" element={<Shell><Audit /></Shell>} />
-        <Route path="/health" element={<Shell><Health /></Shell>} />
+        <Route path="/wallets" element={<Shell><Wallets /></Shell>} />
         <Route path="/monitor" element={<Monitor />} />
       </Routes>
     </BrowserRouter>

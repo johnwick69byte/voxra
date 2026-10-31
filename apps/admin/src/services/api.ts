@@ -66,4 +66,7 @@ export const adminAPI = {
     api.post("/admin/notifications/broadcast", { title, body, audience }),
   health: () => api.get("/admin/health"),
   audit: () => api.get("/admin/audit"),
+  walletSearch: (phone: string) => api.get("/admin/wallets/search", { params: { phone } }),
+  walletCredit: (phone: string, amount: number) =>
+    api.post("/admin/wallets/credit", { phone, amount }),
 };

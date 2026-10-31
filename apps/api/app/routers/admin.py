@@ -1289,3 +1289,7 @@ async def bootstrap_admin(email: str, password: str, name: str = "Admin"):
         }
     )
     return {"success": True, "user_id": user_id}
+
+
+@router.get('/wallets/search')
+async def admin_wallet_search(phone: str, admin: dict = Depends(require_admin)): pass

@@ -17,19 +17,21 @@
 
 .monitor-grid {
   flex: 1;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  display: flex;
+  flex-direction: row;
   gap: 8px;
   padding: 8px;
-  overflow: auto;
+  overflow: hidden;
+  min-height: 0; /* allow flex child to shrink below content size */
 }
 
 .monitor-cell {
   position: relative;
+  flex: 1;
   background: #111;
   border-radius: 6px;
   overflow: hidden;
-  aspect-ratio: 16 / 9;
+  /* No aspect-ratio — let the cell fill the full available height */
 }
 
 .monitor-video {
@@ -60,13 +62,12 @@
 }
 
 .monitor-empty {
-  grid-column: 1 / -1;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #888;
   font-size: 16px;
-  min-height: 200px;
 }
 
 .monitor-fit-toggle {

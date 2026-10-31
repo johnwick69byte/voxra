@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { adminAPI } from "../services/api";
 
@@ -22,30 +22,71 @@ export default function LiveOps() {
   const [calls, setCalls] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<LiveOpsMetrics | null>(null);
   const [stuckBusy, setStuckBusy] = useState<StuckCreator[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
 
-  const load = async () => {
-    const res = await adminAPI.liveOps();
-    setCalls(res.data.calls || []);
-    setMetrics(res.data.metrics || null);
-    setStuckBusy(res.data.stuck_busy_creators || []);
+  const load = async (showSpinner = false) => {
+    if (showSpinner) {
+      setRefreshing(true);
+      refreshingRef.current = true;
+    }
+    try {
+      const res = await adminAPI.liveOps();
+      setCalls(res.data.calls || []);
+      setMetrics(res.data.metrics || null);
+      setStuckBusy(res.data.stuck_busy_creators || []);
+    } finally {
+      if (showSpinner) {
+        setRefreshing(false);
+        refreshingRef.current = false;
+      }
+    }
   };
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 30_000);
+    const t = setInterval(() => load(), 30_000);
     return () => clearInterval(t);
   }, []);
 
   return (
     <div>
-      <h1 className="page-title">Live ops</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <h1 className="page-title" style={{ margin: 0 }}>Live ops</h1>
+        <button
+          className="btn ghost"
+          onClick={() => load(true)}
+          disabled={refreshing}
+          style={{ display: "flex", alignItems: "center", gap: 6 }}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{
+              animation: refreshing ? "liveops-spin 0.7s linear infinite" : "none",
+            }}
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
       <p className="page-sub">
         Active & ringing calls — auto-refresh every 30s. Force-end clears stuck calls; force-offline
-        clears stuck BUSY creators.{" "}
-        <button className="btn ghost" onClick={load} style={{ marginLeft: 8 }}>
-          Refresh
-        </button>
+        clears stuck BUSY creators.
       </p>
+      <style>{`
+        @keyframes liveops-spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      `}</style>
 
       {metrics && (
         <div className="panel" style={{ marginBottom: 16, display: "flex", gap: 24, flexWrap: "wrap" }}>

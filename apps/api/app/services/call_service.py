@@ -774,6 +774,12 @@ async def finalize_call(call_id: str, status: str = "ENDED") -> dict:
     await emit_call(call_id, "call_ended", payload)
 
     status_now = await presence_service.get_creator_status(call["receiver_id"])
+    # Ensure creator is released back to ONLINE after call ends (not stuck BUSY)
+    try:
+        await presence_service.mark_creator_online(call["receiver_id"])
+        status_now = "ONLINE"
+    except Exception:
+        pass
     await emit_to_user(
         call["receiver_id"],
         "creator_status",

@@ -777,13 +777,15 @@ async def finalize_call(call_id: str, status: str = "ENDED") -> dict:
     # Ensure creator is released back to ONLINE after call ends (not stuck BUSY)
     try:
         await presence_service.mark_creator_online(call["receiver_id"])
-        status_now = "ONLINE"
     except Exception:
         pass
+    # Emit ONLINE unconditionally — do not gate on the presence read or on
+    # mark_creator_online succeeding. This is the safety net for the case where
+    # the mobile socket is stressed and the event needs to land reliably.
     await emit_to_user(
         call["receiver_id"],
         "creator_status",
-        {"user_id": call["receiver_id"], "status": status_now},
+        {"user_id": call["receiver_id"], "status": "ONLINE"},
     )
     return {"success": True, **payload}
 

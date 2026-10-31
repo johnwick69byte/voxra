@@ -42,7 +42,11 @@
 .monitor-video video {
   width: 100% !important;
   height: 100% !important;
-  object-fit: cover !important;
+  object-fit: cover;
+}
+
+.monitor-cell.fit-mode .monitor-video video {
+  object-fit: contain;
 }
 
 .monitor-uid {
@@ -63,4 +67,23 @@
   color: #888;
   font-size: 16px;
   min-height: 200px;
+}
+
+.monitor-fit-toggle {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  z-index: 10;
+  line-height: 1.4;
+}
+
+.monitor-fit-toggle:hover {
+  background: rgba(0, 0, 0, 0.8);
 }

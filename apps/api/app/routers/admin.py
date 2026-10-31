@@ -19,6 +19,9 @@ from app.services import (
 
 logger = logging.getLogger(__name__)
 
+# Reserved UID for admin observer joins — must never be 0 to avoid Agora evictions.
+ADMIN_MONITOR_UID = 999_999_999
+
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
@@ -366,13 +369,13 @@ async def generate_monitor_token(body: dict, admin: dict = Depends(require_admin
         raise HTTPException(400, "channel_name is required")
     from app.services import agora_service
 
-    tokens = agora_service.build_rtc_token(channel_name, uid=0, role="subscriber")
+    tokens = agora_service.build_rtc_token(channel_name, uid=ADMIN_MONITOR_UID, role="subscriber")
     await _audit(admin["user_id"], "monitor_token", {"channel_name": channel_name})
     return {
         "success": True,
         "token": tokens.get("token"),
         "appId": tokens.get("app_id"),
-        "uid": 0,
+        "uid": ADMIN_MONITOR_UID,
         "channel_name": channel_name,
     }
 

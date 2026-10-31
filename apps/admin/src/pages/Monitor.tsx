@@ -11,6 +11,7 @@ interface Remote {
 export default function Monitor() {
   const [remotes, setRemotes] = useState<Remote[]>([]);
   const [status, setStatus] = useState("connecting");
+  const [fitModes, setFitModes] = useState<Record<number, boolean>>({});
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const remotesRef = useRef<Map<number, Remote>>(new Map());
 
@@ -19,12 +20,17 @@ export default function Monitor() {
     const appId = q.get("appId") || "";
     const channel = q.get("channel") || "";
     const token = q.get("token") || "";
+    const uid = Number(q.get("uid") || 999_999_999);
     if (!appId || !channel) {
       setStatus("missing params");
       return;
     }
 
-    const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+    // Use Live Broadcasting mode with audience role set BEFORE joining.
+    // In live mode, audience members are invisible to other channel participants —
+    // the mobile clients never receive onUserJoined/onUserOffline for the admin
+    // observer, so closing the popup cannot trigger the disconnect grace timer.
+    const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
     clientRef.current = client;
 
     client.on("user-published", async (user: IAgoraRTCRemoteUser, mediaType: "audio" | "video") => {
@@ -71,8 +77,10 @@ export default function Monitor() {
 
     (async () => {
       try {
-        await client.join(appId, channel, token || null, 0);
+        // audience role MUST be set before join in live mode — setting it after
+        // has no effect and the client briefly joins as a host.
         await client.setClientRole("audience");
+        await client.join(appId, channel, token || null, uid || 999_999_999);
         setStatus("live");
       } catch (e) {
         console.error(e);
@@ -98,8 +106,14 @@ export default function Monitor() {
       <div className="monitor-grid">
         {remotes.length === 0 && <div className="monitor-empty">Waiting for streams…</div>}
         {remotes.map((r) => (
-          <div key={r.uid} className="monitor-cell">
+          <div key={r.uid} className={`monitor-cell${fitModes[r.uid] ? " fit-mode" : ""}`}>
             <div id={`remote-video-${r.uid}`} className="monitor-video" />
+            <button
+              className="monitor-fit-toggle"
+              onClick={() => setFitModes((m) => ({ ...m, [r.uid]: !m[r.uid] }))}
+            >
+              {fitModes[r.uid] ? "Fill" : "Fit"}
+            </button>
             <span className="monitor-uid">{r.uid}</span>
           </div>
         ))}

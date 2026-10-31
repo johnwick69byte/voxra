@@ -32,7 +32,7 @@ export default function LiveOps() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 5000);
+    const t = setInterval(load, 30_000);
     return () => clearInterval(t);
   }, []);
 
@@ -40,8 +40,11 @@ export default function LiveOps() {
     <div>
       <h1 className="page-title">Live ops</h1>
       <p className="page-sub">
-        Active & ringing calls — auto-refresh every 5s. Force-end clears stuck calls; force-offline
-        clears stuck BUSY creators.
+        Active & ringing calls — auto-refresh every 30s. Force-end clears stuck calls; force-offline
+        clears stuck BUSY creators.{" "}
+        <button className="btn ghost" onClick={load} style={{ marginLeft: 8 }}>
+          Refresh
+        </button>
       </p>
 
       {metrics && (
@@ -153,6 +156,7 @@ export default function LiveOps() {
                           appId: d.appId,
                           channel: d.channel_name,
                           token: d.token,
+                          uid: String(d.uid),
                         });
                         window.open(`/monitor?${params.toString()}`, "_blank", "width=1200,height=800");
                       } catch {

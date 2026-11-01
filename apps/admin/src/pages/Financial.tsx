@@ -150,6 +150,8 @@ export default function Financial() {
             {(rechargeCom.commissions || []).map((c) => (
               <tr key={c.commission_id}>
                 <td>{istDate(c.created_at)}</td>
+                <td><span className="badge">{c.type}</span></td>
+                <td style={{ fontSize: 12, color: "var(--muted)" }}>
                   {c.source_id}
                   {c.minute ? ` · min ${c.minute}` : ""}
                 </td>

@@ -183,6 +183,11 @@ async def browse_creators(
     # Rows are time-bounded so a stale RINGING/ACCEPTED record (dead handshake)
     # does not mark someone BUSY forever in the list. The authoritative
     # self-heal lives in presence_service.get_creator_status.
+    #
+    # LIVE calls are NOT time-bounded by accepted_at — a call that has been
+    # running for more than 2 minutes is still live. The sweeper finalises
+    # genuinely stuck LIVE records. Capping at 2 min caused LIVE creators to
+    # appear ACTIVE in the listing even though they were on a call.
     now_utc = datetime.now(timezone.utc)
     ring_grace = get_settings().call_ring_timeout_seconds + 15
     active_calls = (
@@ -201,8 +206,11 @@ async def browse_creators(
                         "accepted_at": {"$gte": now_utc - timedelta(minutes=2)},
                     },
                     {
+                        # LIVE calls are busy for as long as they exist — no
+                        # 2-minute cap. Use a generous 4-hour upper bound to
+                        # exclude records that the sweeper has not yet cleaned up.
                         "status": "LIVE",
-                        "accepted_at": {"$gte": now_utc - timedelta(minutes=2)},
+                        "accepted_at": {"$gte": now_utc - timedelta(hours=4)},
                     },
                 ],
             },

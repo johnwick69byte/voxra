@@ -1,16 +1,5 @@
 /* ── Monitor popup — full-screen layout matching CelebConnect ────────────── */
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-body {
-  background: #111827;
-  overflow: hidden;
-}
-
 .monitor-page {
   position: fixed;
   inset: 0;

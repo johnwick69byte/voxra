@@ -9,6 +9,48 @@ function inr(n: any) {
   return `₹${Number(n || 0).toFixed(2)}`;
 }
 
+function userCell(w: any) {
+  const name = w.user_name || w.username || "Unknown user";
+  return (
+    <div>
+      <div style={{ fontWeight: 600 }}>{name}</div>
+      <div style={{ fontSize: 11, color: "var(--muted)" }}>{w.user_id}</div>
+      {w.user_phone && (
+        <div style={{ fontSize: 11, color: "var(--muted)" }}>{w.user_phone}</div>
+      )}
+    </div>
+  );
+}
+
+function payoutCell(w: any) {
+  const bank = w.bank_details || {};
+  const hasBank = Boolean(bank.bank_name || bank.account_number);
+  return (
+    <div style={{ minWidth: 220, lineHeight: 1.45 }}>
+      <div>
+        <span style={{ color: "var(--muted)", fontSize: 11 }}>UPI </span>
+        {w.upi_id || "—"}
+      </div>
+      {hasBank ? (
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>
+          <div>{bank.bank_name || "Bank"}</div>
+          <div>
+            <span style={{ fontSize: 11 }}>A/C </span>
+            {bank.account_number || "—"}
+          </div>
+          <div>
+            <span style={{ fontSize: 11 }}>IFSC </span>
+            {bank.ifsc_code || "—"}
+          </div>
+          <div>{bank.account_holder_name || w.account_name || "—"}</div>
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>No bank details on file</div>
+      )}
+    </div>
+  );
+}
+
 function referralCell(w: any) {
   if (w.status === "REJECTED") {
     return <span style={{ color: "var(--muted)" }}>Refunded — no fee</span>;
@@ -158,7 +200,7 @@ export default function Withdrawals() {
               <th>Payout</th>
               <th>Fee (10%)</th>
               <th>Referral (5%) / platform</th>
-              <th>UPI</th>
+              <th>Payout details</th>
               <th>Status</th>
               <th></th>
             </tr>
@@ -167,7 +209,7 @@ export default function Withdrawals() {
             {items.map((w) => (
               <tr key={w.request_id}>
                 <td>{w.request_id}</td>
-                <td>{w.user_id}</td>
+                <td>{userCell(w)}</td>
                 <td>{inr(w.amount)}</td>
                 <td>
                   {w.status === "REJECTED" ? "—" : inr(w.payout_amount)}
@@ -176,7 +218,7 @@ export default function Withdrawals() {
                   {w.status === "REJECTED" ? "—" : inr(w.commission_amount)}
                 </td>
                 <td>{referralCell(w)}</td>
-                <td>{w.upi_id}</td>
+                <td>{payoutCell(w)}</td>
                 <td><span className="badge warn">{w.status}</span></td>
                 <td className="row">
                   {tab === "pending" && (

@@ -721,6 +721,63 @@ def test_admin_withdrawal_view_shows_referral_or_full_platform_share():
     assert plain["platform_commission_amount"] == 100.0
 
 
+def test_admin_withdrawal_rows_include_user_name_and_bank_details():
+    from app.routers import admin
+
+    bank = {
+        "bank_name": "HDFC Bank",
+        "account_number": "1234567890",
+        "ifsc_code": "HDFC0001234",
+        "account_holder_name": "Asha",
+    }
+    db = FakeDB(
+        users=[
+            {
+                "user_id": "creator_1",
+                "name": "Asha",
+                "username": "asha",
+                "phone": "+919876543210",
+            }
+        ],
+        creator_profiles=[
+            {
+                "user_id": "creator_1",
+                "upi_id": "asha@upi",
+                "bank_details": bank,
+            }
+        ],
+    )
+
+    # Older rows may not have a payout snapshot; the profile is the fallback.
+    rows = [{"request_id": "wd_1", "user_id": "creator_1", "amount": 1000}]
+    enriched = asyncio.run(admin._attach_withdrawal_users(db, rows))
+    assert enriched[0]["user_name"] == "Asha"
+    assert enriched[0]["user_phone"] == "+919876543210"
+    assert enriched[0]["upi_id"] == "asha@upi"
+    assert enriched[0]["bank_details"]["account_number"] == "1234567890"
+    assert enriched[0]["account_name"] == "Asha"
+
+    # A row that already has its own snapshot keeps that snapshot.
+    own_bank = {
+        "bank_name": "ICICI Bank",
+        "account_number": "9999999999",
+        "ifsc_code": "ICIC0009999",
+        "account_holder_name": "Asha S",
+    }
+    rows = [
+        {
+            "request_id": "wd_2",
+            "user_id": "creator_1",
+            "upi_id": "old@upi",
+            "bank_details": own_bank,
+        }
+    ]
+    enriched = asyncio.run(admin._attach_withdrawal_users(db, rows))
+    assert enriched[0]["bank_details"]["bank_name"] == "ICICI Bank"
+    assert enriched[0]["upi_id"] == "old@upi"
+    assert enriched[0]["account_name"] == "Asha S"
+
+
 def test_admin_mark_paid_settles_ten_percent_and_pays_referral_once(monkeypatch):
     from app.routers import admin
     from app.services import model_referral_service

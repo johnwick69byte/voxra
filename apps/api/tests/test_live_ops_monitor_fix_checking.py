@@ -1,7 +1,7 @@
 """Fix-checking tests for the Live Ops monitor fix.
 
 These tests run on the FIXED code and verify that:
-1. generate_monitor_token returns uid=ADMIN_MONITOR_UID (never 0).
+1. generate_monitor_token returns a unique nonzero uid for every viewer.
 2. The fixed onUserOffline handler does NOT call scheduleDisconnectGrace
    when departing_uid ≠ peer_uid.
 3. The fixed onUserOffline handler DOES call scheduleDisconnectGrace
@@ -20,61 +20,52 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-# ── Task 9.1 — generate_monitor_token returns uid=999999999, never 0 ─────────
+# ── generate_monitor_token mints a unique uid per viewer ─────────────────────
 
 class TestFixedGenerateMonitorToken:
-    """Verifies that the fixed endpoint always returns ADMIN_MONITOR_UID."""
+    """Verifies that each monitor session gets its own nonzero uid."""
 
-    def setup_method(self):
-        from app.routers.admin import ADMIN_MONITOR_UID
-        self.ADMIN_MONITOR_UID = ADMIN_MONITOR_UID
+    def _call_endpoint(self, channel_name: str):
+        import asyncio
 
-    def _simulate_endpoint(self, channel_name: str) -> dict:
-        """Simulate the fixed generate_monitor_token logic."""
+        from app.routers import admin as admin_module
         from app.services import agora_service
 
         fake_tokens = {"token": "rtc-token-xyz", "app_id": "app-id-abc"}
-        with patch.object(agora_service, "build_rtc_token", return_value=fake_tokens) as mock_build:
-            uid_arg = self.ADMIN_MONITOR_UID
-            tokens = agora_service.build_rtc_token(channel_name, uid=uid_arg, role="subscriber")
-            response = {
-                "success": True,
-                "token": tokens.get("token"),
-                "appId": tokens.get("app_id"),
-                "uid": uid_arg,
-                "channel_name": channel_name,
-            }
-            return response, mock_build
-
-    def test_uid_equals_admin_monitor_uid(self):
-        response, _ = self._simulate_endpoint("channel_call_001")
-        assert response["uid"] == self.ADMIN_MONITOR_UID, (
-            f"Expected uid={self.ADMIN_MONITOR_UID}, got {response['uid']}"
-        )
+        with (
+            patch.object(admin_module, "_audit", new=AsyncMock()),
+            patch.object(
+                agora_service, "build_rtc_token", return_value=fake_tokens
+            ) as mock_build,
+        ):
+            response = asyncio.run(
+                admin_module.generate_monitor_token(
+                    {"channel_name": channel_name}, {"user_id": "admin_1"}
+                )
+            )
+        return response, mock_build
 
     def test_uid_is_never_zero(self):
         for channel in ["ch_a", "ch_b", "channel_call_123", "test"]:
-            response, _ = self._simulate_endpoint(channel)
+            response, _ = self._call_endpoint(channel)
             assert response["uid"] != 0, (
                 f"uid must never be 0, got 0 for channel={channel!r}"
             )
 
-    def test_uid_is_999_999_999(self):
-        response, _ = self._simulate_endpoint("any_channel")
-        assert response["uid"] == 999_999_999
+    def test_two_viewers_get_different_uids(self):
+        first, _ = self._call_endpoint("same_channel")
+        second, _ = self._call_endpoint("same_channel")
+        assert first["uid"] != second["uid"], (
+            "Two monitor sessions shared a uid — the second viewer will evict "
+            "the first one."
+        )
 
-    def test_build_rtc_token_receives_admin_monitor_uid(self):
-        from app.services import agora_service
-
-        fake_tokens = {"token": "t", "app_id": "a"}
-        with patch.object(agora_service, "build_rtc_token", return_value=fake_tokens) as mock_build:
-            agora_service.build_rtc_token(
-                "ch_test", uid=self.ADMIN_MONITOR_UID, role="subscriber"
-            )
-            args, kwargs = mock_build.call_args
-            uid_passed = kwargs.get("uid", args[1] if len(args) > 1 else None)
-            assert uid_passed == self.ADMIN_MONITOR_UID
-            assert uid_passed != 0
+    def test_build_rtc_token_receives_the_returned_uid(self):
+        response, mock_build = self._call_endpoint("ch_test")
+        args, kwargs = mock_build.call_args
+        uid_passed = kwargs.get("uid", args[1] if len(args) > 1 else None)
+        assert uid_passed == response["uid"]
+        assert uid_passed != 0
 
 
 # ── Task 9.4 — finalize_call emits creator_status="ONLINE" unconditionally ───

@@ -30,7 +30,9 @@ export default function Monitor() {
   const appId = q.get("appId") || "";
   const channel = q.get("channel") || "";
   const token = q.get("token") || "";
-  const uid = parseInt(q.get("uid") || "999999999", 10);
+  // Each monitor session gets its own uid from the API. Never fall back to a
+  // shared fixed uid: two viewers with the same uid evict each other.
+  const uid = Number.parseInt(q.get("uid") || "", 10);
 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
 
@@ -43,6 +45,14 @@ export default function Monitor() {
   useEffect(() => {
     if (!appId || !channel) {
       setError("Missing appId or channel in URL params");
+      return;
+    }
+    if (!Number.isInteger(uid) || uid <= 0) {
+      setError("Missing spectator UID in the monitor link. Open Monitor from Live Ops.");
+      return;
+    }
+    if (!token) {
+      setError("Missing spectator token in the monitor link.");
       return;
     }
 
@@ -71,7 +81,21 @@ export default function Monitor() {
           });
         });
 
-        client.on("user-unpublished", (user: IAgoraRTCRemoteUser) => {
+        client.on("user-unpublished", (user: IAgoraRTCRemoteUser, mediaType: "audio" | "video") => {
+          // Drop only the media type that was unpublished. Removing the whole
+          // user here hides a participant's video when they mute their mic.
+          setRemoteUsers((prev) =>
+            prev.map((u) => {
+              if (u.uid !== user.uid) return u;
+              const next: any = { ...u };
+              if (mediaType === "video") next.videoTrack = undefined;
+              else next.audioTrack = undefined;
+              return next;
+            })
+          );
+        });
+
+        client.on("user-left", (user: IAgoraRTCRemoteUser) => {
           setRemoteUsers((prev) => prev.filter((u) => u.uid !== user.uid));
         });
 

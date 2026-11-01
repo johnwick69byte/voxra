@@ -1,116 +1,95 @@
-"""Exploratory bug-condition tests for the Live Ops monitor fix.
+"""Regression tests for admin live-call monitoring.
 
-These tests are written to run against the UNFIXED code and confirm the root
-causes described in the bugfix spec.  They serve as executable counterexamples:
-each test is expected to FAIL on the unfixed code, proving the bug exists.
-After the fix is applied, all of these tests should PASS.
+The original bug was two-fold:
+
+1. The token endpoint joined every spectator as uid 0, which Agora treats as
+   "auto-assign" and can evict a real call participant.
+2. The first fix switched everyone to one fixed uid (999999999), which made a
+   second admin viewer evict the first viewer.
+
+Every monitor session must therefore get its own nonzero uid. These tests call
+the real endpoint logic with Agora token minting mocked out.
 
 Run:  python -m pytest tests/test_live_ops_monitor_exploratory.py -v
 """
 
+import asyncio
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-# ── Bug A: generate_monitor_token returned uid=0 ─────────────────────────────
+def call_generate_monitor_token(channel_name: str = "channel_call_abc"):
+    """Call the endpoint function directly with a fake admin."""
+    from app.routers import admin as admin_module
+    from app.services import agora_service
 
-class TestBugA_AdminTokenUid:
-    """Bug Condition A: the endpoint unconditionally passed uid=0 to
-    build_rtc_token and returned uid=0 in the response.
+    fake_tokens = {"token": "fake-rtc-token", "app_id": "test-app-id"}
 
-    On the UNFIXED code the assertion below would FAIL (response uid IS 0),
-    confirming the root cause.  After the fix it PASSES.
-    """
-
-    def _call_generate_monitor_token(self, channel_name: str) -> dict:
-        """Helper: call the generate_monitor_token endpoint logic directly,
-        mocking out Agora token generation and the audit helper."""
-        from app.routers.admin import ADMIN_MONITOR_UID
-        from app.services import agora_service
-
-        fake_tokens = {
-            "token": "fake-rtc-token",
-            "app_id": "test-app-id",
-        }
-
-        with patch.object(agora_service, "build_rtc_token", return_value=fake_tokens) as mock_build:
-            # Replicate the fixed endpoint logic inline so we can inspect args
-            tokens = agora_service.build_rtc_token(
-                channel_name, uid=ADMIN_MONITOR_UID, role="subscriber"
+    with (
+        patch.object(admin_module, "_audit", new=AsyncMock()),
+        patch.object(
+            agora_service, "build_rtc_token", return_value=fake_tokens
+        ) as mock_build,
+    ):
+        response = asyncio.run(
+            admin_module.generate_monitor_token(
+                {"channel_name": channel_name}, {"user_id": "admin_1"}
             )
-            response = {
-                "success": True,
-                "token": tokens.get("token"),
-                "appId": tokens.get("app_id"),
-                "uid": ADMIN_MONITOR_UID,
-                "channel_name": channel_name,
-            }
-            return response, mock_build
+        )
 
-    def test_generate_monitor_token_uid_is_not_zero(self):
-        """Bug A exploration: the token response uid must NOT be 0.
+    return response, mock_build
 
-        On unfixed code (uid=0 hardcoded), this asserts response["uid"] != 0
-        which would fail — confirming the bug.  On fixed code it passes.
-        """
-        response, mock_build = self._call_generate_monitor_token("channel_call_abc")
+
+class TestAdminMonitorToken:
+    def test_uid_is_nonzero(self):
+        response, _ = call_generate_monitor_token()
         assert response["uid"] != 0, (
-            "BUG A CONFIRMED: generate_monitor_token returned uid=0. "
-            "Admin will join Agora as uid=0, potentially evicting a real participant."
+            "A monitor must never join as uid 0; Agora treats it as auto-assign "
+            "and can evict a call participant."
         )
 
-    def test_generate_monitor_token_uid_equals_admin_monitor_uid(self):
-        """Bug A exploration: the uid in the response must equal ADMIN_MONITOR_UID."""
-        from app.routers.admin import ADMIN_MONITOR_UID
+    def test_uid_fits_agora_31_bit_range(self):
+        response, _ = call_generate_monitor_token()
+        assert 0 < response["uid"] < 2**31
 
-        response, _ = self._call_generate_monitor_token("channel_call_xyz")
-        assert response["uid"] == ADMIN_MONITOR_UID, (
-            f"Expected uid={ADMIN_MONITOR_UID}, got uid={response['uid']}. "
-            "Admin monitor UID must be the reserved constant, never 0."
+    def test_each_monitor_session_gets_a_unique_uid(self):
+        """Two devices watching the same call must not share a uid."""
+        uids = {call_generate_monitor_token("same_channel")[0]["uid"] for _ in range(25)}
+        assert len(uids) == 25, (
+            "Two monitor sessions received the same uid. The second viewer will "
+            "evict the first one from the Agora channel."
         )
 
-    def test_build_rtc_token_called_with_nonzero_uid(self):
-        """Bug A exploration: build_rtc_token must NOT be called with uid=0."""
-        from app.routers.admin import ADMIN_MONITOR_UID
-        from app.services import agora_service
+    def test_token_is_minted_for_the_returned_uid(self):
+        response, mock_build = call_generate_monitor_token("channel_call_xyz")
+        args, kwargs = mock_build.call_args
+        uid_passed = kwargs.get("uid", args[1] if len(args) > 1 else None)
+        assert uid_passed == response["uid"]
+        assert uid_passed != 0
 
-        fake_tokens = {"token": "t", "app_id": "a"}
-        with patch.object(agora_service, "build_rtc_token", return_value=fake_tokens) as mock_build:
-            agora_service.build_rtc_token("ch_test", uid=ADMIN_MONITOR_UID, role="subscriber")
-            call_kwargs = mock_build.call_args
-            uid_used = call_kwargs[1].get("uid") or call_kwargs[0][1]
-            assert uid_used != 0, (
-                "BUG A CONFIRMED: build_rtc_token was called with uid=0. "
-                "This causes Agora to auto-assign or collide with an existing UID."
-            )
-            assert uid_used == ADMIN_MONITOR_UID
+    def test_token_is_minted_with_subscriber_role(self):
+        _, mock_build = call_generate_monitor_token()
+        args, kwargs = mock_build.call_args
+        role_passed = kwargs.get("role", args[2] if len(args) > 2 else None)
+        assert role_passed == "subscriber"
 
+    def test_response_marks_the_session_as_subscriber(self):
+        response, _ = call_generate_monitor_token()
+        assert response["role"] == "subscriber"
+        assert response["success"] is True
+        assert response["channel_name"] == "channel_call_abc"
 
-# ── Bug A: ADMIN_MONITOR_UID constant must exist ─────────────────────────────
-
-class TestAdminMonitorUidConstant:
-    """The constant must be present in the router module after the fix."""
-
-    def test_admin_monitor_uid_constant_exists(self):
+    def test_missing_channel_name_is_rejected(self):
+        from fastapi import HTTPException
         from app.routers import admin as admin_module
 
-        assert hasattr(admin_module, "ADMIN_MONITOR_UID"), (
-            "ADMIN_MONITOR_UID constant is missing from admin.py"
-        )
-
-    def test_admin_monitor_uid_constant_value(self):
-        from app.routers.admin import ADMIN_MONITOR_UID
-
-        assert ADMIN_MONITOR_UID == 999_999_999, (
-            f"ADMIN_MONITOR_UID should be 999_999_999, got {ADMIN_MONITOR_UID}"
-        )
-
-    def test_admin_monitor_uid_is_positive_nonzero(self):
-        from app.routers.admin import ADMIN_MONITOR_UID
-
-        assert ADMIN_MONITOR_UID > 0, "ADMIN_MONITOR_UID must be > 0 to avoid Agora evictions"
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                admin_module.generate_monitor_token({}, {"user_id": "admin_1"})
+            )
+        assert exc.value.status_code == 400

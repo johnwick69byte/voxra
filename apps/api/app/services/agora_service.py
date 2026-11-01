@@ -32,6 +32,19 @@ def uid_for_user(user_id: str) -> int:
     return uid or 1
 
 
+def monitor_uid(admin_id: str) -> int:
+    """Unique, nonzero Agora uid for one admin monitor session.
+
+    Every spectator must join with its own uid. A fixed uid (including uid 0)
+    makes Agora treat the second viewer as a duplicate of the first and evict
+    the earlier session. The random per-request component lets multiple admins
+    watch the same call from different tabs or devices at the same time.
+    """
+    import uuid
+
+    return uid_for_user(f"admin-monitor:{admin_id}:{uuid.uuid4().hex}")
+
+
 def build_rtc_token(channel_name: str, uid: int = 0, role: str = "publisher", expire_seconds: int = 3600) -> dict:
     """Mint an Agora RTC token.
 

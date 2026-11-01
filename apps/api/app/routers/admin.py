@@ -19,9 +19,6 @@ from app.services import (
 
 logger = logging.getLogger(__name__)
 
-# Reserved UID for admin observer joins — must never be 0 to avoid Agora evictions.
-ADMIN_MONITOR_UID = 999_999_999
-
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
@@ -394,19 +391,32 @@ async def missed_calls(admin: dict = Depends(require_admin)):
 
 @router.post("/calls/generate-token")
 async def generate_monitor_token(body: dict, admin: dict = Depends(require_admin)):
-    """Admin spectator token — join a live channel as a subscriber (audience)."""
+    """Admin spectator token — join a live channel as a subscriber (audience).
+
+    A fresh nonzero uid is minted for every request. Reusing one fixed uid
+    across monitor sessions makes Agora evict the earlier viewer as soon as a
+    second admin starts watching the same call.
+    """
     channel_name = (body or {}).get("channel_name")
     if not channel_name:
         raise HTTPException(400, "channel_name is required")
     from app.services import agora_service
 
-    tokens = agora_service.build_rtc_token(channel_name, uid=ADMIN_MONITOR_UID, role="subscriber")
-    await _audit(admin["user_id"], "monitor_token", {"channel_name": channel_name})
+    spectator_uid = agora_service.monitor_uid(admin["user_id"])
+    tokens = agora_service.build_rtc_token(
+        channel_name, uid=spectator_uid, role="subscriber"
+    )
+    await _audit(
+        admin["user_id"],
+        "monitor_token",
+        {"channel_name": channel_name, "uid": spectator_uid},
+    )
     return {
         "success": True,
         "token": tokens.get("token"),
         "appId": tokens.get("app_id"),
-        "uid": ADMIN_MONITOR_UID,
+        "uid": spectator_uid,
+        "role": "subscriber",
         "channel_name": channel_name,
     }
 
@@ -573,6 +583,60 @@ def _withdrawal_view(row: dict, live_referrer: dict | None = None) -> dict:
     return data
 
 
+async def _attach_withdrawal_users(db, items: list[dict]) -> list[dict]:
+    """Attach the creator's name and payout details to withdrawal rows.
+
+    Withdrawal rows carry `user_id`, `upi_id` and `bank_details` (newer rows
+    only). Older requests may have no bank snapshot, so fall back to the
+    creator profile's saved payout details. The admin payout table needs the
+    name and bank account to actually send the money.
+    """
+    if not items:
+        return items
+
+    user_ids = list({item.get("user_id") for item in items if item.get("user_id")})
+    if not user_ids:
+        return items
+
+    users: dict[str, dict] = {}
+    user_docs = await db.users.find(
+        {"user_id": {"$in": user_ids}},
+        {"_id": 0, "user_id": 1, "name": 1, "username": 1, "phone": 1, "email": 1},
+    ).to_list(len(user_ids))
+    for u in user_docs:
+        users[u["user_id"]] = u
+
+    profiles: dict[str, dict] = {}
+    profile_docs = await db.creator_profiles.find(
+        {"user_id": {"$in": user_ids}},
+        {"_id": 0, "user_id": 1, "upi_id": 1, "bank_details": 1},
+    ).to_list(len(user_ids))
+    for p in profile_docs:
+        profiles[p["user_id"]] = p
+
+    for item in items:
+        user_id = item.get("user_id")
+        user = users.get(user_id) or {}
+        profile = profiles.get(user_id) or {}
+
+        item["user_name"] = user.get("name") or user.get("username") or user_id
+        item["username"] = user.get("username")
+        item["user_phone"] = user.get("phone")
+        item["user_email"] = user.get("email")
+
+        bank = item.get("bank_details") or profile.get("bank_details") or {}
+        if bank:
+            item["bank_details"] = bank
+            item["account_name"] = (
+                item.get("account_name")
+                or bank.get("account_holder_name")
+                or item["user_name"]
+            )
+        item["upi_id"] = item.get("upi_id") or profile.get("upi_id")
+
+    return items
+
+
 @router.get("/withdrawals/pending")
 async def pending_withdrawals(admin: dict = Depends(require_admin)):
     db = get_db()
@@ -580,11 +644,12 @@ async def pending_withdrawals(admin: dict = Depends(require_admin)):
     refs = await model_referral_service.resolve_withdrawal_referrers(
         [item.get("user_id") for item in items]
     )
+    views = [
+        _withdrawal_view(item, refs.get(item.get("user_id"))) for item in items
+    ]
     return {
         "success": True,
-        "withdrawals": [
-            _withdrawal_view(item, refs.get(item.get("user_id"))) for item in items
-        ],
+        "withdrawals": await _attach_withdrawal_users(db, views),
     }
 
 
@@ -596,9 +661,10 @@ async def processed_withdrawals(admin: dict = Depends(require_admin)):
         .sort("paid_at", -1)
         .to_list(200)
     )
+    views = [_withdrawal_view(item) for item in items]
     return {
         "success": True,
-        "withdrawals": [_withdrawal_view(item) for item in items],
+        "withdrawals": await _attach_withdrawal_users(db, views),
     }
 
 
@@ -610,9 +676,10 @@ async def failed_withdrawals(admin: dict = Depends(require_admin)):
         .sort("created_at", -1)
         .to_list(200)
     )
+    views = [_withdrawal_view(item) for item in items]
     return {
         "success": True,
-        "withdrawals": [_withdrawal_view(item) for item in items],
+        "withdrawals": await _attach_withdrawal_users(db, views),
     }
 
 

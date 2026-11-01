@@ -4,8 +4,10 @@ These tests use Hypothesis to prove correctness properties hold for
 arbitrarily generated inputs — far stronger than hand-picked examples.
 
 Properties tested:
-  Property 1 (Fix)         — for any channel_name, generate_monitor_token
-                             always returns uid=ADMIN_MONITOR_UID (never 0).
+  Property 1 (Fix)         — for any channel_name, every call to
+                             generate_monitor_token returns a nonzero uid in
+                             Agora's 31-bit range, and two calls never share
+                             a uid.
   Property 2 (Fix)         — for any (departing_uid, peer_uid) where
                              departing_uid ≠ peer_uid, the fixed handler
                              never calls scheduleDisconnectGrace.
@@ -16,9 +18,10 @@ Properties tested:
 Run:  python -m pytest tests/test_live_ops_monitor_pbt.py -v
 """
 
+import asyncio
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from hypothesis import assume, given, settings
@@ -27,14 +30,32 @@ from hypothesis import strategies as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-# ── Property 1: For any channel_name, token response uid = ADMIN_MONITOR_UID ──
+# ── Property 1: every monitor session gets a unique nonzero uid ──────────────
 
 class TestProperty1_AdminTokenUid:
     """
     PROPERTY 1 (Fix):
-        ∀ channel_name ∈ str :
-            generate_monitor_token(channel_name).uid == ADMIN_MONITOR_UID
+        ∀ channel_name ∈ str, every call to generate_monitor_token returns a
+        nonzero uid in Agora's 31-bit range, and two calls never share a uid.
     """
+
+    def _call_endpoint(self, channel_name: str):
+        from app.routers import admin as admin_module
+        from app.services import agora_service
+
+        fake_tokens = {"token": f"token_{channel_name[:8]}", "app_id": "test-app"}
+        with (
+            patch.object(admin_module, "_audit", new=AsyncMock()),
+            patch.object(
+                agora_service, "build_rtc_token", return_value=fake_tokens
+            ) as mock_build,
+        ):
+            response = asyncio.run(
+                admin_module.generate_monitor_token(
+                    {"channel_name": channel_name}, {"user_id": "admin_1"}
+                )
+            )
+        return response, mock_build
 
     @given(
         channel_name=st.text(
@@ -47,37 +68,32 @@ class TestProperty1_AdminTokenUid:
         )
     )
     @settings(max_examples=200)
-    def test_property1_uid_always_equals_admin_monitor_uid(self, channel_name: str):
-        """For any channel name the endpoint always returns ADMIN_MONITOR_UID."""
-        from app.routers.admin import ADMIN_MONITOR_UID
-        from app.services import agora_service
-
-        fake_tokens = {"token": f"token_{channel_name[:8]}", "app_id": "test-app"}
-
-        with patch.object(agora_service, "build_rtc_token", return_value=fake_tokens):
-            # Simulate the fixed endpoint logic
-            tokens = agora_service.build_rtc_token(
-                channel_name, uid=ADMIN_MONITOR_UID, role="subscriber"
-            )
-            response_uid = ADMIN_MONITOR_UID  # the fixed code always returns this
-
-        assert response_uid == ADMIN_MONITOR_UID, (
-            f"PROPERTY 1 VIOLATED: channel={channel_name!r} produced uid={response_uid}, "
-            f"expected {ADMIN_MONITOR_UID}"
+    def test_property1_uid_is_nonzero_and_fits_31_bits(self, channel_name: str):
+        response, mock_build = self._call_endpoint(channel_name)
+        assert 0 < response["uid"] < 2**31, (
+            f"channel={channel_name!r} produced invalid uid={response['uid']}"
         )
-        assert response_uid != 0, (
-            f"PROPERTY 1 VIOLATED: channel={channel_name!r} produced uid=0"
-        )
+        args, kwargs = mock_build.call_args
+        uid_passed = kwargs.get("uid", args[1] if len(args) > 1 else None)
+        assert uid_passed == response["uid"]
 
-    @given(channel_name=st.text(min_size=0, max_size=128))
+    @given(
+        channel_name=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Lu", "Ll", "Nd"),
+                whitelist_characters="_-"
+            ),
+            min_size=1,
+            max_size=64,
+        )
+    )
     @settings(max_examples=100)
-    def test_property1_uid_never_zero_for_any_string(self, channel_name: str):
-        """uid is never 0, even for empty or exotic channel name strings."""
-        from app.routers.admin import ADMIN_MONITOR_UID
-
-        # The fixed endpoint always uses the constant, regardless of input
-        response_uid = ADMIN_MONITOR_UID
-        assert response_uid != 0
+    def test_property1_two_sessions_never_share_a_uid(self, channel_name: str):
+        first, _ = self._call_endpoint(channel_name)
+        second, _ = self._call_endpoint(channel_name)
+        assert first["uid"] != second["uid"], (
+            f"channel={channel_name!r} gave both monitor sessions uid={first['uid']}"
+        )
 
 
 # ── Python model of the fixed onUserOffline handler ──────────────────────────
@@ -129,14 +145,14 @@ class TestProperty2_SpuriousOfflineNeverCallsGrace:
 
     @given(peer_uid=st.integers(min_value=1, max_value=2**31 - 1))
     @settings(max_examples=200)
-    def test_property2_admin_uid_999999999_never_triggers_grace(self, peer_uid: int):
-        """The specific admin UID 999999999 never triggers grace when peer is different."""
+    def test_property2_large_uid_never_triggers_grace(self, peer_uid: int):
+        """A large, uncommon uid never triggers grace when the peer is different."""
         assume(peer_uid != 999_999_999)
 
         grace_called = fixed_handler_would_call_grace(999_999_999, peer_uid)
 
         assert grace_called is False, (
-            f"PROPERTY 2 VIOLATED: admin UID 999999999 triggered grace for peer={peer_uid}"
+            f"PROPERTY 2 VIOLATED: large uid triggered grace for peer={peer_uid}"
         )
 
 
@@ -170,8 +186,8 @@ class TestProperty3_PeerDepartureAlwaysCallsGrace:
         grace_called = fixed_handler_would_call_grace(peer_uid, peer_uid)
         assert grace_called is True
 
-    def test_property3_holds_for_admin_uid_as_peer(self):
-        """Edge case: even if peer_uid == ADMIN_MONITOR_UID, departure is handled."""
+    def test_property3_holds_for_large_uid_as_peer(self):
+        """Edge case: a large, uncommon uid as peer still triggers grace."""
         # Unusual but valid: if someone is assigned 999999999 as their peer UID,
         # departure must still trigger grace.
         grace_called = fixed_handler_would_call_grace(999_999_999, 999_999_999)

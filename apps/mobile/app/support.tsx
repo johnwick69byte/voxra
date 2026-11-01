@@ -29,8 +29,12 @@ export default function SupportScreen() {
   );
 
   const submit = async () => {
-    if (subject.trim().length < 2 || message.trim().length < 5) {
-      Toast.show({ type: "error", text1: "Add a subject and a message" });
+    if (!subject.trim()) {
+      Toast.show({ type: "error", text1: "Please enter a subject" });
+      return;
+    }
+    if (!message.trim()) {
+      Toast.show({ type: "error", text1: "Please enter a message" });
       return;
     }
     setLoading(true);

@@ -6,6 +6,8 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Linking,
+  Modal,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -40,6 +42,7 @@ export default function WalletScreen() {
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [successFlash, setSuccessFlash] = useState(false);
   const [txFilter, setTxFilter] = useState<(typeof TX_FILTERS)[number]>("ALL");
+  const [showSupportModal, setShowSupportModal] = useState(false);
   const scale = useSharedValue(1);
   const prevBalance = useRef(0);
   const verifyInFlight = useRef<Promise<boolean> | null>(null);
@@ -227,6 +230,23 @@ export default function WalletScreen() {
         style={{ marginHorizontal: 24, marginTop: 10 }}
       />
 
+      {/* Recharge support */}
+      <Pressable
+        style={styles.supportBanner}
+        onPress={() => setShowSupportModal(true)}
+      >
+        <View style={styles.supportBannerLeft}>
+          <Ionicons name="headset" size={22} color={theme.colors.brandLight} />
+          <View style={{ flex: 1 }}>
+            <AppText style={styles.supportBannerTitle}>Issue with recharge?</AppText>
+            <AppText variant="caption" style={{ marginTop: 2 }}>
+              Contact us — we'll sort it out quickly.
+            </AppText>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+      </Pressable>
+
       <AppText variant="label" style={styles.section}>
         Ledger
       </AppText>
@@ -291,6 +311,53 @@ export default function WalletScreen() {
           );
         }}
       />
+
+      {/* Recharge support modal */}
+      <Modal
+        visible={showSupportModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSupportModal(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowSupportModal(false)}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
+            {/* drag handle */}
+            <View style={styles.modalHandle} />
+
+            <View style={styles.modalIcon}>
+              <Ionicons name="headset" size={32} color={theme.colors.brandLight} />
+            </View>
+            <AppText style={styles.modalTitle}>Recharge Support</AppText>
+            <AppText variant="caption" style={styles.modalSub}>
+              Tap a number to call us directly. We're available to help with payment issues.
+            </AppText>
+
+            {[
+              { number: "8688128396", label: "Support — Line 1" },
+              { number: "9494415087", label: "Support — Line 2" },
+            ].map(({ number, label }) => (
+              <Pressable
+                key={number}
+                style={({ pressed }) => [styles.callRow, pressed && { opacity: 0.75 }]}
+                onPress={() => Linking.openURL(`tel:${number}`)}
+              >
+                <View style={styles.callIcon}>
+                  <Ionicons name="call" size={20} color={theme.colors.onBrand} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <AppText style={styles.callLabel}>{label}</AppText>
+                  <AppText style={styles.callNumber}>{number}</AppText>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+              </Pressable>
+            ))}
+
+            <Pressable style={styles.modalClose} onPress={() => setShowSupportModal(false)}>
+              <AppText style={styles.modalCloseText}>Close</AppText>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -359,4 +426,119 @@ const styles = StyleSheet.create({
   txRow: { flexDirection: "row", justifyContent: "space-between" },
   txType: { fontFamily: theme.font.bodySemi, color: theme.colors.text, textTransform: "capitalize" },
   txAmt: { color: theme.colors.brandLight, fontFamily: theme.font.bodyBold },
+
+  // ── Recharge support banner ───────────────────────────────────────────────
+  supportBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginHorizontal: 24,
+    marginTop: 14,
+    padding: 16,
+    borderRadius: theme.radius.lg,
+    backgroundColor: "rgba(45,212,191,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(45,212,191,0.25)",
+  },
+  supportBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  supportBannerTitle: {
+    fontFamily: theme.font.bodyBold,
+    fontSize: 15,
+    color: theme.colors.brandLight,
+  },
+
+  // ── Recharge support modal ────────────────────────────────────────────────
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: theme.colors.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    paddingTop: 12,
+    alignItems: "center",
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.colors.border,
+    marginBottom: 20,
+  },
+  modalIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "rgba(45,212,191,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  modalTitle: {
+    fontFamily: theme.font.displayMedium,
+    fontSize: 22,
+    color: theme.colors.text,
+    marginBottom: 6,
+  },
+  modalSub: {
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 24,
+    paddingHorizontal: 8,
+  },
+  callRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    gap: 14,
+    backgroundColor: theme.colors.background,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  callIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  callLabel: {
+    fontFamily: theme.font.bodySemi,
+    fontSize: 13,
+    color: theme.colors.textSecondary,
+  },
+  callNumber: {
+    fontFamily: theme.font.bodyBold,
+    fontSize: 18,
+    color: theme.colors.text,
+    marginTop: 1,
+    letterSpacing: 0.5,
+  },
+  modalClose: {
+    marginTop: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 48,
+    borderRadius: 14,
+    backgroundColor: theme.colors.background,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  modalCloseText: {
+    fontFamily: theme.font.bodyBold,
+    fontSize: 16,
+    color: theme.colors.text,
+  },
 });

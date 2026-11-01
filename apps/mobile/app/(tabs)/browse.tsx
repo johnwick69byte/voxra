@@ -481,6 +481,18 @@ export default function BrowseScreen() {
                         </AppText>
                       </View>
                     ) : null}
+                    {Array.isArray(item.languages) && item.languages.length > 0 ? (
+                      <View style={styles.langRow}>
+                        {item.languages.slice(0, 3).map((lang: string) => (
+                          <View key={lang} style={styles.langPill}>
+                            <AppText style={styles.langText}>{lang}</AppText>
+                          </View>
+                        ))}
+                        {item.languages.length > 3 ? (
+                          <AppText style={styles.langMore}>+{item.languages.length - 3}</AppText>
+                        ) : null}
+                      </View>
+                    ) : null}
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />
                 </View>
@@ -720,6 +732,31 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   ratingText: { fontFamily: theme.font.bodyBold, fontSize: 12, color: theme.colors.accentDeep },
+  langRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginTop: 7,
+    alignItems: "center",
+  },
+  langPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: "rgba(45,212,191,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(45,212,191,0.22)",
+  },
+  langText: {
+    fontFamily: theme.font.bodySemi,
+    fontSize: 11,
+    color: theme.colors.brandLight,
+  },
+  langMore: {
+    fontFamily: theme.font.bodySemi,
+    fontSize: 11,
+    color: theme.colors.textMuted,
+  },
   backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.5)" },
   sheet: {
     backgroundColor: theme.colors.backgroundElevated,

@@ -183,8 +183,8 @@ export default function LiveOps() {
                 <td>
                   <span className={`badge ${c.status === "LIVE" ? "" : "warn"}`}>{c.status}</span>
                 </td>
-                <td>{c.caller_id}</td>
-                <td>{c.receiver_id}</td>
+                <td>{c.caller_name || c.caller_id}</td>
+                <td>{c.receiver_name || c.receiver_id}</td>
                 <td>₹{c.rate_per_minute}/min</td>
                 <td className="row">
                   <button

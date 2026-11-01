@@ -262,10 +262,30 @@ async def live_ops(admin: dict = Depends(require_admin)):
         {"status": {"$in": ["RINGING", "ACCEPTED", "LIVE"]}},
         {"_id": 0, "decline_token": 0},
     ).to_list(100)
+
+    # Resolve caller and receiver names in one batch query
+    user_ids = list({c["caller_id"] for c in calls} | {c["receiver_id"] for c in calls})
+    if user_ids:
+        users = await db.users.find(
+            {"user_id": {"$in": user_ids}},
+            {"_id": 0, "user_id": 1, "name": 1, "username": 1},
+        ).to_list(len(user_ids))
+        umap = {u["user_id"]: u.get("name") or u.get("username") or u["user_id"] for u in users}
+    else:
+        umap = {}
+
+    enriched = []
+    for c in calls:
+        enriched.append({
+            **c,
+            "caller_name": umap.get(c["caller_id"], c["caller_id"]),
+            "receiver_name": umap.get(c["receiver_id"], c["receiver_id"]),
+        })
+
     metrics = await _live_ops_metrics(db)
     return {
         "success": True,
-        "calls": calls,
+        "calls": enriched,
         "metrics": metrics,
         "stuck_busy_creators": metrics["stuck_busy_creators"],
     }

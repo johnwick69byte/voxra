@@ -1333,10 +1333,17 @@ async def admin_wallet_search(phone: str, admin: dict = Depends(require_admin)):
 
 @router.post('/wallets/credit')
 async def admin_wallet_credit(body: dict, admin: dict = Depends(require_admin)):
-    """Manually credit a user's spendable wallet balance.
+    """Manually credit a user's spendable wallet balance — same economics as a
+    normal recharge: 6% platform commission is retained, user receives 94%.
 
-    The full gross amount is credited directly — no commission deduction for
-    manual admin credits (this is a support/correction action, not a recharge).
+    Steps:
+      1. Find user by phone.
+      2. split_recharge(gross) — 94% credit, 6% commission.
+      3. credit_balance_once(user_id, credit_amount, order_id).
+      4. add_platform_balance_once(commission, order_id).
+      5. record_platform_commission(...) with type RECHARGE_COMMISSION.
+      6. Insert a RECHARGE transaction record with full split metadata.
+      7. Emit wallet_updated socket event to the user.
     """
     phone = (body or {}).get("phone", "")
     amount = float((body or {}).get("amount", 0))
@@ -1346,6 +1353,8 @@ async def admin_wallet_credit(body: dict, admin: dict = Depends(require_admin)):
         raise HTTPException(400, "amount must be positive")
 
     db = get_db()
+
+    # Normalise phone
     digits = "".join(c for c in phone if c.isdigit())
     if len(digits) == 12 and digits.startswith("91"):
         digits = digits[2:]
@@ -1361,20 +1370,87 @@ async def admin_wallet_credit(body: dict, admin: dict = Depends(require_admin)):
         raise HTTPException(404, f"No user found for phone '{phone}'")
 
     from app.services import wallet_service
-    # Credit the full amount directly — this is an admin correction, not a
-    # recharge, so we do not apply the recharge commission deduction.
-    wallet = await wallet_service.credit_balance(user["user_id"], amount)
-    await wallet_service.insert_transaction(
-        user_id=user["user_id"],
-        tx_type="BONUS",
-        amount=amount,
-        description=f"Manual credit by admin {admin['user_id']}",
-        metadata={"admin_id": admin["user_id"], "gross": amount},
+    from app.services.payment_service import split_recharge
+    from app.core.socket import emit_to_user
+
+    splits = split_recharge(amount)
+    order_id = f"admin_credit_{uuid.uuid4().hex[:14]}"
+    now = datetime.now(timezone.utc)
+
+    # 1. Credit 94% to user wallet (idempotent)
+    await wallet_service.credit_balance_once(
+        user["user_id"], splits["credit_amount"], order_id
     )
-    await _audit(admin["user_id"], "wallet_credit", {"user_id": user["user_id"], "amount": amount})
+
+    # 2. Credit 6% to platform wallet (idempotent)
+    await wallet_service.add_platform_balance_once(splits["total_commission"], order_id)
+
+    # 3. Record platform commission
+    await wallet_service.record_platform_commission(
+        commission_type="RECHARGE_COMMISSION",
+        amount=splits["total_commission"],
+        source_id=order_id,
+        user_id=user["user_id"],
+        gross_amount=splits["original_amount"],
+        model_earnings=splits["credit_amount"],
+        gateway_commission=0.0,
+        service_commission=splits["total_commission"],
+        commission_id=f"pcom_recharge_{order_id}",
+        metadata={
+            "order_id": order_id,
+            "gateway": "admin_manual",
+            "admin_id": admin["user_id"],
+            "gateway_commission": 0.0,
+            "service_commission": splits["total_commission"],
+        },
+    )
+
+    # 4. Insert full RECHARGE transaction record (mirrors normal recharge)
+    tx_id = f"tx_recharge_{order_id}"
+    await db.transactions.insert_one({
+        "transaction_id": tx_id,
+        "user_id": user["user_id"],
+        "type": "RECHARGE",
+        "amount": splits["original_amount"],
+        "description": (
+            f"Manual recharge ₹{splits['original_amount']:.2f} by admin — "
+            f"₹{splits['credit_amount']:.2f} credited after "
+            f"₹{splits['total_commission']:.2f} fee"
+        ),
+        "metadata": {
+            "order_id": order_id,
+            "status": "SUCCESS",
+            "gateway": "admin_manual",
+            "admin_id": admin["user_id"],
+            "credit_amount": splits["credit_amount"],
+            "commission_breakdown": splits,
+            "completed_at": now,
+        },
+        "created_at": now,
+    })
+
+    # 5. Audit log
+    await _audit(admin["user_id"], "wallet_credit", {
+        "user_id": user["user_id"],
+        "gross": splits["original_amount"],
+        "credited": splits["credit_amount"],
+        "commission": splits["total_commission"],
+        "order_id": order_id,
+    })
+
+    # 6. Notify user via socket
+    wallet = await wallet_service.get_wallet(user["user_id"])
+    await emit_to_user(
+        user["user_id"],
+        "wallet_updated",
+        {"balance": wallet.get("balance", 0), "order_id": order_id},
+    )
+
     return {
         "success": True,
-        "balance": (wallet or {}).get("balance", 0),
-        "credit": amount,
-        "commission": 0,
+        "balance": wallet.get("balance", 0),
+        "credit": splits["credit_amount"],
+        "commission": splits["total_commission"],
+        "gross": splits["original_amount"],
+        "order_id": order_id,
     }

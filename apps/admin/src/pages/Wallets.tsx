@@ -39,7 +39,7 @@ export default function Wallets() {
       const r = await adminAPI.walletCredit(phone.trim(), n);
       setBalance(r.data.balance);
       setAmount("");
-      toast.success(`✓ Credited ₹${r.data.credit?.toFixed(2)} (after ₹${r.data.commission?.toFixed(2)} commission)`);
+      toast.success(`✓ Credited ₹${r.data.credit?.toFixed(2)} to user (₹${r.data.commission?.toFixed(2)} commission recorded)`);
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || "Credit failed");
     } finally {
@@ -91,7 +91,7 @@ export default function Wallets() {
           </div>
 
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-            <div style={{ fontWeight: 600, marginBottom: 10 }}>Manual credit</div>
+            <div style={{ fontWeight: 600, marginBottom: 10 }}>Manual credit (recharge)</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 type="number"
@@ -107,7 +107,11 @@ export default function Wallets() {
               </button>
             </div>
             <p style={{ fontSize: 12, opacity: 0.5, marginTop: 6 }}>
-              Full amount is credited directly. No commission deduction for admin corrections.
+              Same economics as a normal recharge — 6% commission retained, 94% credited to user.
+              Commission is recorded in platform_commissions.
+              {amount && Number(amount) > 0
+                ? ` ₹${Number(amount).toFixed(2)} gross → ₹${(Number(amount) * 0.94).toFixed(2)} to user, ₹${(Number(amount) * 0.06).toFixed(2)} commission.`
+                : ""}
             </p>
           </div>
         </div>

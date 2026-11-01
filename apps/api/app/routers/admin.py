@@ -1333,7 +1333,11 @@ async def admin_wallet_search(phone: str, admin: dict = Depends(require_admin)):
 
 @router.post('/wallets/credit')
 async def admin_wallet_credit(body: dict, admin: dict = Depends(require_admin)):
-    """Manually credit a user's spendable wallet balance."""
+    """Manually credit a user's spendable wallet balance.
+
+    The full gross amount is credited directly — no commission deduction for
+    manual admin credits (this is a support/correction action, not a recharge).
+    """
     phone = (body or {}).get("phone", "")
     amount = float((body or {}).get("amount", 0))
     if not phone:
@@ -1345,6 +1349,8 @@ async def admin_wallet_credit(body: dict, admin: dict = Depends(require_admin)):
     digits = "".join(c for c in phone if c.isdigit())
     if len(digits) == 12 and digits.startswith("91"):
         digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
 
     variants = [digits, f"91{digits}", f"+91{digits}", f"0{digits}"]
     user = await db.users.find_one(
@@ -1355,19 +1361,20 @@ async def admin_wallet_credit(body: dict, admin: dict = Depends(require_admin)):
         raise HTTPException(404, f"No user found for phone '{phone}'")
 
     from app.services import wallet_service
-    commission = wallet_service.calculate_commission(amount)
-    wallet = await wallet_service.credit_balance(user["user_id"], commission["credit_amount"])
+    # Credit the full amount directly — this is an admin correction, not a
+    # recharge, so we do not apply the recharge commission deduction.
+    wallet = await wallet_service.credit_balance(user["user_id"], amount)
     await wallet_service.insert_transaction(
         user_id=user["user_id"],
-        tx_type="RECHARGE",
+        tx_type="BONUS",
         amount=amount,
         description=f"Manual credit by admin {admin['user_id']}",
-        metadata={"gross": amount, "commission": commission["commission_amount"], "credit": commission["credit_amount"]},
+        metadata={"admin_id": admin["user_id"], "gross": amount},
     )
     await _audit(admin["user_id"], "wallet_credit", {"user_id": user["user_id"], "amount": amount})
     return {
         "success": True,
         "balance": (wallet or {}).get("balance", 0),
-        "credit": commission["credit_amount"],
-        "commission": commission["commission_amount"],
+        "credit": amount,
+        "commission": 0,
     }

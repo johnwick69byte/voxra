@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     jwt_expire_days: int = 45
     admin_jwt_secret: str = "dev-admin-secret-change-me"
 
-    cors_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost:8081"
+    cors_origins: str = "*"
     socketio_cors_origins: str = "*"
 
     environment: str = "development"
@@ -81,7 +81,10 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> List[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        raw = self.cors_origins.strip()
+        if not raw or raw == "*":
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
     @property
     def socketio_cors_list(self) -> Union[str, List[str]]:

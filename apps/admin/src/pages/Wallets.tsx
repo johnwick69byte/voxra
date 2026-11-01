@@ -107,7 +107,7 @@ export default function Wallets() {
               </button>
             </div>
             <p style={{ fontSize: 12, opacity: 0.5, marginTop: 6 }}>
-              6% commission is deducted. ₹100 gross → ₹94 credited to user wallet.
+              Full amount is credited directly. No commission deduction for admin corrections.
             </p>
           </div>
         </div>

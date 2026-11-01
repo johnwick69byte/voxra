@@ -76,6 +76,7 @@ export default function App() {
         <Route path="/broadcast" element={<Shell><Broadcast /></Shell>} />
         <Route path="/audit" element={<Shell><Audit /></Shell>} />
         <Route path="/wallets" element={<Shell><Wallets /></Shell>} />
+        <Route path="/health" element={<Shell><Health /></Shell>} />
         <Route path="/monitor" element={<Monitor />} />
       </Routes>
     </BrowserRouter>

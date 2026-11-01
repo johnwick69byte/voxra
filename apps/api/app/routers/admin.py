@@ -173,6 +173,17 @@ async def analytics(period: str = "weekly", admin: dict = Depends(require_admin)
         ]
     ).to_list(10)
 
+    # Enrich top_creators with user names
+    creator_ids = [c["_id"] for c in top_creators if c.get("_id")]
+    if creator_ids:
+        creator_users = await db.users.find(
+            {"user_id": {"$in": creator_ids}},
+            {"_id": 0, "user_id": 1, "name": 1, "username": 1},
+        ).to_list(len(creator_ids))
+        cmap = {u["user_id"]: u.get("name") or u.get("username") or u["user_id"] for u in creator_users}
+        for c in top_creators:
+            c["name"] = cmap.get(c["_id"], c["_id"])
+
     return {
         "success": True,
         "recharge_series": [{"date": x["_id"], "amount": x["amount"], "count": x["count"]} for x in recharge_series],

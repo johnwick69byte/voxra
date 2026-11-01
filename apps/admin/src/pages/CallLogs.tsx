@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { adminAPI } from "../services/api";
+import { istDate } from "../utils/format";
 
 function inr(n: number | undefined) {
   return `₹${Number(n || 0).toFixed(2)}`;
@@ -57,7 +58,7 @@ export default function CallLogs() {
           <tbody>
             {calls.map((c) => (
               <tr key={c.call_id}>
-                <td>{c.created_at ? new Date(c.created_at).toLocaleString() : "—"}</td>
+                <td>{istDate(c.created_at)}</td>
                 <td>{c.receiver_name || c.receiver_id}</td>
                 <td>{c.caller_name || c.caller_id}</td>
                 <td><span className="badge">{c.call_type}</span></td>

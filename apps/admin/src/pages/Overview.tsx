@@ -88,7 +88,12 @@ export default function Overview() {
           <tbody>
             {(analytics?.top_creators || []).map((c: any) => (
               <tr key={c._id}>
-                <td>{c._id}</td>
+                <td>
+                  {c.name || c._id}
+                  {c.name && (
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{c._id}</div>
+                  )}
+                </td>
                 <td>{c.calls}</td>
                 <td>₹{Number(c.earnings).toFixed(0)}</td>
               </tr>

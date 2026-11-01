@@ -9,6 +9,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { adminAPI } from "../services/api";
+import { istDate } from "../utils/format";
 
 function inr(n: number | undefined) {
   return `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
@@ -148,9 +149,7 @@ export default function Financial() {
           <tbody>
             {(rechargeCom.commissions || []).map((c) => (
               <tr key={c.commission_id}>
-                <td>{c.created_at ? new Date(c.created_at).toLocaleString() : "—"}</td>
-                <td><span className="badge">{c.type}</span></td>
-                <td style={{ fontSize: 12, color: "var(--muted)" }}>
+                <td>{istDate(c.created_at)}</td>
                   {c.source_id}
                   {c.minute ? ` · min ${c.minute}` : ""}
                 </td>
@@ -236,7 +235,7 @@ export default function Financial() {
                 <td><span className="badge">{t.type}</span></td>
                 <td>{t.user_id}</td>
                 <td>{inr(t.amount)}</td>
-                <td>{t.created_at ? new Date(t.created_at).toLocaleString() : "—"}</td>
+                <td>{istDate(t.created_at)}</td>
               </tr>
             ))}
           </tbody>

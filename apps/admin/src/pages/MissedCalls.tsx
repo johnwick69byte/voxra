@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { adminAPI } from "../services/api";
+import { istDate } from "../utils/format";
 
 export default function MissedCalls() {
   const [calls, setCalls] = useState<any[]>([]);
@@ -16,25 +17,33 @@ export default function MissedCalls() {
         <table>
           <thead>
             <tr>
-              <th>Call</th>
+              <th>When (IST)</th>
               <th>Type</th>
               <th>Caller</th>
               <th>Creator</th>
-              <th>When</th>
             </tr>
           </thead>
           <tbody>
             {calls.map((c) => (
               <tr key={c.call_id}>
-                <td>{c.call_id}</td>
+                <td>{istDate(c.created_at)}</td>
                 <td>{c.call_type}</td>
-                <td>{c.caller_id}</td>
-                <td>{c.receiver_id}</td>
-                <td>{c.created_at ? new Date(c.created_at).toLocaleString() : "—"}</td>
+                <td>
+                  {c.caller_name || c.caller_id}
+                  {c.caller_name && (
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{c.caller_id}</div>
+                  )}
+                </td>
+                <td>
+                  {c.receiver_name || c.receiver_id}
+                  {c.receiver_name && (
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{c.receiver_id}</div>
+                  )}
+                </td>
               </tr>
             ))}
             {!calls.length && (
-              <tr><td colSpan={5} style={{ color: "var(--muted)" }}>No missed calls</td></tr>
+              <tr><td colSpan={4} style={{ color: "var(--muted)" }}>No missed calls</td></tr>
             )}
           </tbody>
         </table>

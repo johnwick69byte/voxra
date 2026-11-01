@@ -1295,4 +1295,79 @@ async def bootstrap_admin(email: str, password: str, name: str = "Admin"):
 
 
 @router.get('/wallets/search')
-async def admin_wallet_search(phone: str, admin: dict = Depends(require_admin)): pass
+async def admin_wallet_search(phone: str, admin: dict = Depends(require_admin)):
+    """Search a user by phone number and return their wallet balance.
+
+    Accepts 10-digit (9492045797), 12-digit with country code (919492045797),
+    or E.164 (+919492045787) — all are normalised to a 10-digit local number
+    before the DB lookup so the format the admin types doesn't matter.
+    """
+    db = get_db()
+
+    # Normalise: strip non-digits, remove leading 91 if 12 digits
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+
+    # Build the same set of phone variants the auth router stores
+    variants = [digits, f"91{digits}", f"+91{digits}", f"0{digits}"]
+
+    user = await db.users.find_one(
+        {"phone": {"$in": variants}, "deleted": {"$ne": True}},
+        {"_id": 0, "user_id": 1, "name": 1, "username": 1, "phone": 1, "user_type": 1},
+    )
+    if not user:
+        raise HTTPException(404, f"No user found for phone '{phone}'")
+
+    from app.services import wallet_service
+    wallet = await wallet_service.get_wallet(user["user_id"])
+    return {
+        "success": True,
+        "user": user,
+        "balance": wallet.get("balance", 0),
+        "earnings_balance": wallet.get("earnings_balance", 0),
+    }
+
+
+@router.post('/wallets/credit')
+async def admin_wallet_credit(body: dict, admin: dict = Depends(require_admin)):
+    """Manually credit a user's spendable wallet balance."""
+    phone = (body or {}).get("phone", "")
+    amount = float((body or {}).get("amount", 0))
+    if not phone:
+        raise HTTPException(400, "phone is required")
+    if amount <= 0:
+        raise HTTPException(400, "amount must be positive")
+
+    db = get_db()
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+
+    variants = [digits, f"91{digits}", f"+91{digits}", f"0{digits}"]
+    user = await db.users.find_one(
+        {"phone": {"$in": variants}, "deleted": {"$ne": True}},
+        {"_id": 0, "user_id": 1, "name": 1},
+    )
+    if not user:
+        raise HTTPException(404, f"No user found for phone '{phone}'")
+
+    from app.services import wallet_service
+    commission = wallet_service.calculate_commission(amount)
+    wallet = await wallet_service.credit_balance(user["user_id"], commission["credit_amount"])
+    await wallet_service.insert_transaction(
+        user_id=user["user_id"],
+        tx_type="RECHARGE",
+        amount=amount,
+        description=f"Manual credit by admin {admin['user_id']}",
+        metadata={"gross": amount, "commission": commission["commission_amount"], "credit": commission["credit_amount"]},
+    )
+    await _audit(admin["user_id"], "wallet_credit", {"user_id": user["user_id"], "amount": amount})
+    return {
+        "success": True,
+        "balance": (wallet or {}).get("balance", 0),
+        "credit": commission["credit_amount"],
+        "commission": commission["commission_amount"],
+    }

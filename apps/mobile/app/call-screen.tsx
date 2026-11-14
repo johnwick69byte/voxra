@@ -12,6 +12,7 @@ import {
   TextInput,
 } from "react-native";
 import { useLocalSearchParams, useRouter, useNavigation } from "expo-router";
+import { useKeepAwake } from "expo-keep-awake";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -77,6 +78,11 @@ function CircleBtn({
 
 export default function CallScreen() {
   useSecureCallScreen(true);
+  // A call can run for minutes without any touches. Without this, the OS
+  // idle timer locks the phone and the call UI (and local camera preview)
+  // disappears. The hook releases the lock automatically when the screen
+  // unmounts.
+  useKeepAwake();
   const router = useRouter();
   const navigation = useNavigation();
   const params = useLocalSearchParams();

@@ -57,6 +57,8 @@ export const adminAPI = {
     api.get("/admin/financial/recharge-commissions", { params: { limit, type } }),
   financialAnalytics: (period = "month") =>
     api.get("/admin/financial/analytics", { params: { period } }),
+  chats: (params?: { limit?: number; skip?: number }) => api.get("/admin/chats", { params }),
+  chatThread: (conversationId: string) => api.get(`/admin/chats/${conversationId}`),
 
   support: () => api.get("/admin/support/messages"),
   markSupportRead: (id: string) => api.post(`/admin/support/messages/${id}/mark-read`),

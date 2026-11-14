@@ -59,6 +59,7 @@ export default function Financial() {
     { label: "Total revenue", value: inr(data.total_revenue) },
     { label: "Total commission", value: inr(data.total_commission) },
     { label: "Platform wallet", value: inr(data.platform_wallet_balance) },
+    { label: "Chat revenue (platform)", value: inr(data.chat_revenue) },
     { label: "Total withdrawals", value: inr(data.total_withdrawals) },
     { label: "Net profit", value: inr(data.net_profit) },
   ];
@@ -110,6 +111,7 @@ export default function Financial() {
               ["RECHARGE_COMMISSION", "Recharge (6%)"],
               ["CALL_COMMISSION", "Call (15%)"],
               ["GIFT_COMMISSION", "Gift (15%)"],
+              ["CHAT_COMMISSION", "Chat (50%)"],
             ] as const).map(([val, label]) => (
               <button
                 key={label}

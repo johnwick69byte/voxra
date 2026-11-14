@@ -25,6 +25,8 @@ import {
 import { ensureNotificationChannels } from "../src/services/notificationChannels";
 import { callsAPI } from "../src/services/api";
 import { useNotificationsStore } from "../src/store/notificationsStore";
+import { useChatStore } from "../src/store/chatStore";
+import { isChatThreadOpen } from "../src/services/activeChat";
 import { ensureAllPermissions } from "../src/services/permissions";
 import { openCallScreen, buildCallParamsFromActive } from "../src/services/callNavigation";
 
@@ -209,7 +211,20 @@ export default function RootLayout() {
       });
     };
 
+    const onChatMessage = (payload: any) => {
+      useChatStore.getState().refresh();
+      if (!payload || isChatThreadOpen(payload.conversation_id)) return;
+      const preview = String(payload.text || "").slice(0, 80);
+      Toast.show({
+        type: "info",
+        text1: "New message",
+        text2: preview || "Open Chat to reply",
+        visibilityTime: 4000,
+      });
+    };
+
     socketService.on("incoming_call", onIncoming);
+    socketService.on("chat_message", onChatMessage);
     socketService.on("cancel_call_notification", onCancelNotif);
     socketService.on("call_cancelled", onCancelNotif);
     socketService.on("call_missed", onCancelNotif);
@@ -283,6 +298,7 @@ export default function RootLayout() {
       socketService.off("call_cancelled", onCancelNotif);
       socketService.off("call_missed", onCancelNotif);
       socketService.off("new_notification", onNewNotification);
+      socketService.off("chat_message", onChatMessage);
     };
   }, [user]);
 
@@ -330,6 +346,7 @@ export default function RootLayout() {
         <Stack.Screen name="pending-approval" />
         <Stack.Screen name="call-review" />
         <Stack.Screen name="call-history" />
+        <Stack.Screen name="chat/[conversationId]" />
         <Stack.Screen name="edit-profile" />
         <Stack.Screen name="notifications" />
         <Stack.Screen name="support" />

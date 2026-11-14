@@ -16,6 +16,7 @@
 
 import { Platform } from "react-native";
 import type { CallRoutePayload } from "./callRouter";
+import { isChatThreadOpen } from "./activeChat";
 
 type PushData = CallRoutePayload & {
   title?: string;
@@ -24,6 +25,7 @@ type PushData = CallRoutePayload & {
   reason?: string;
   creator_id?: string;
   user_id?: string;
+  conversation_id?: string;
 };
 
 const CHANNEL_DEFAULT = "app_notifications";
@@ -64,6 +66,8 @@ function defaultTitle(type?: string): string {
       return "You received a gift";
     case "new_follower":
       return "New follower";
+    case "CHAT_MESSAGE":
+      return "New message";
     case "admin_broadcast":
       return "Simple Talk";
     default:
@@ -91,6 +95,8 @@ function defaultBody(type?: string): string {
       return "Someone sent you a gift.";
     case "new_follower":
       return "Someone started following you.";
+    case "CHAT_MESSAGE":
+      return "You have a new chat message.";
     default:
       return "You have a new update.";
   }
@@ -103,6 +109,7 @@ function defaultBody(type?: string): string {
  */
 export async function displayGeneralNotification(data: PushData): Promise<void> {
   if (data?.type === "incoming_call") return;
+  if (data?.type === "CHAT_MESSAGE" && isChatThreadOpen(data.conversation_id)) return;
   const notifee = getNotifee();
   if (!notifee) return;
 
@@ -118,7 +125,7 @@ export async function displayGeneralNotification(data: PushData): Promise<void> 
     });
 
     await notifee.displayNotification({
-      id: `ntf_${data.type || "general"}_${data.creator_id || data.call_id || Date.now()}`,
+      id: `ntf_${data.type || "general"}_${data.conversation_id || data.creator_id || data.call_id || Date.now()}`,
       title,
       body,
       data: Object.fromEntries(
@@ -147,9 +154,11 @@ export async function displayGeneralNotification(data: PushData): Promise<void> 
 export async function routeGeneralNotification(data: PushData): Promise<void> {
   if (!data?.type || data.type === "incoming_call") return;
 
-  // The notification centre is the safe destination for everything: it renders
-  // the server-side notification list, so the user never lands nowhere.
-  const target = "/notifications";
+  // A chat tap opens that thread. Everything else stays on the notification list.
+  const target =
+    data.type === "CHAT_MESSAGE" && data.conversation_id
+      ? `/chat/${data.conversation_id}`
+      : "/notifications";
   try {
     const { queueNavigation } = require("./navigationQueue");
     queueNavigation(target);

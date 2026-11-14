@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     imagekit_url_endpoint: str = ""
 
     commission_rate: float = 0.15
+    # Fan chat messages. Fixed rupee price, split evenly. Creators reply free.
+    # This is independent of the 15% call commission.
+    chat_message_price: float = 1.0
     referral_bonus_referrer: float = 25.0
     referral_bonus_referee: float = 20.0
     # Withdrawal economics: the creator pays 10% on the requested amount.

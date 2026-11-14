@@ -113,6 +113,7 @@ async def browse_creators(
     gender: str = Query(""),
     language: str = Query(""),
     category: str = Query(""),
+    following: bool = Query(False),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=50),
     user: dict = Depends(require_user),
@@ -147,7 +148,27 @@ async def browse_creators(
     if q.strip():
         query["search_text"] = {"$regex": re.escape(q.strip().lower())}
     exclude = blocked_ids + [user["user_id"]]
-    query["user_id"] = {"$nin": exclude}
+    if following:
+        follows = await db.follows.find(
+            {"follower_id": user["user_id"]}, {"_id": 0, "creator_id": 1}
+        ).to_list(500)
+        allowed = [
+            row["creator_id"]
+            for row in follows
+            if row.get("creator_id") and row["creator_id"] not in exclude
+        ]
+        if not allowed:
+            return {
+                "success": True,
+                "creators": [],
+                "page": page,
+                "limit": limit,
+                "total": 0,
+                "has_more": False,
+            }
+        query["user_id"] = {"$in": allowed}
+    else:
+        query["user_id"] = {"$nin": exclude}
 
     sort_map = {
         "recommended": [("is_dnd", 1), ("is_online", -1), ("avg_rating", -1), ("review_count", -1), ("user_id", 1)],

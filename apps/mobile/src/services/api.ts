@@ -153,6 +153,17 @@ export const walletAPI = {
     api.post("/wallet/withdraw", { amount, upi_id, account_name }),
 };
 
+export const chatAPI = {
+  conversations: () => api.get("/chat/conversations"),
+  open: (creator_id: string) => api.post("/chat/conversations", { creator_id }),
+  messages: (conversationId: string, params?: { limit?: number; before?: string }) =>
+    api.get(`/chat/conversations/${conversationId}/messages`, { params }),
+  markRead: (conversationId: string) =>
+    api.post(`/chat/conversations/${conversationId}/read`),
+  send: (conversationId: string, text: string, client_message_id: string) =>
+    api.post(`/chat/conversations/${conversationId}/messages`, { text, client_message_id }),
+};
+
 export const appAPI = {
   config: () => api.get("/app/config"),
   notifications: () => api.get("/notifications"),

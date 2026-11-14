@@ -9,6 +9,7 @@ import WithdrawalIncreases from "./pages/WithdrawalIncreases";
 import Referrals from "./pages/Referrals";
 import Financial from "./pages/Financial";
 import CallLogs from "./pages/CallLogs";
+import Chats from "./pages/Chats";
 import MissedCalls from "./pages/MissedCalls";
 import Support from "./pages/Support";
 import Broadcast from "./pages/Broadcast";
@@ -33,6 +34,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         <NavLink to="/wallets">Wallets</NavLink>
         <NavLink to="/creators">Creators</NavLink>
         <NavLink to="/calls">Call logs</NavLink>
+        <NavLink to="/chats">Chats</NavLink>
         <NavLink to="/missed">Missed calls</NavLink>
         <NavLink to="/withdrawals">Withdrawals</NavLink>
         <NavLink to="/withdrawal-increases">Limit requests</NavLink>
@@ -68,6 +70,7 @@ export default function App() {
         <Route path="/live" element={<Shell><LiveOps /></Shell>} />
         <Route path="/creators" element={<Shell><Creators /></Shell>} />
         <Route path="/calls" element={<Shell><CallLogs /></Shell>} />
+        <Route path="/chats" element={<Shell><Chats /></Shell>} />
         <Route path="/missed" element={<Shell><MissedCalls /></Shell>} />
         <Route path="/withdrawals" element={<Shell><Withdrawals /></Shell>} />
         <Route path="/withdrawal-increases" element={<Shell><WithdrawalIncreases /></Shell>} />

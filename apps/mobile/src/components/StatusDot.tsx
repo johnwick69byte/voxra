@@ -10,6 +10,7 @@ import { theme } from "../theme/tokens";
 
 const colorMap: Record<string, string> = {
   ACTIVE: theme.colors.online,
+  ONLINE: theme.colors.online,
   BUSY: theme.colors.busy,
   OFFLINE: theme.colors.offline,
   DND: theme.colors.dnd,

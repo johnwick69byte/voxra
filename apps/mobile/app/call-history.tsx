@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { View, FlatList, StyleSheet, RefreshControl } from "react-native";
+import { View, FlatList, StyleSheet, RefreshControl, Pressable } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { callsAPI } from "../src/services/api";
 import { AppText, EmptyState, ScreenHeader } from "../src/components/ui";
@@ -52,7 +52,19 @@ export default function CallHistory() {
             (isCaller ? item.receiver_name : item.caller_name) ||
             (isCaller ? "Creator" : "Fan");
           return (
-            <View style={styles.row}>
+            <Pressable
+              style={styles.row}
+              onPress={() =>
+                router.push({
+                  pathname: "/call-review",
+                  params: {
+                    callId: item.call_id,
+                    peerName: peer,
+                    peerId: isCaller ? item.receiver_id : item.caller_id,
+                  },
+                })
+              }
+            >
               <View style={{ flex: 1 }}>
                 <AppText style={styles.main}>{peer}</AppText>
                 <AppText variant="caption" style={{ marginTop: 4 }}>
@@ -63,7 +75,7 @@ export default function CallHistory() {
                 <AppText style={styles.amt}>₹{(item.total_amount || 0).toFixed(0)}</AppText>
                 <AppText variant="caption">{formatDuration(item.duration_seconds || 0)}</AppText>
               </View>
-            </View>
+            </Pressable>
           );
         }}
       />

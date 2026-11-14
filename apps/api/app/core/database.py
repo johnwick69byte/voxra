@@ -79,6 +79,15 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.withdrawal_requests.create_index([("status", 1), ("created_at", -1)])
     await db.withdrawal_requests.create_index("user_id")
     await db.withdrawal_increase_requests.create_index([("user_id", 1), ("status", 1)])
+    await db.chat_conversations.create_index("conversation_id", unique=True)
+    await db.chat_conversations.create_index([("fan_id", 1), ("creator_id", 1)], unique=True)
+    await db.chat_conversations.create_index([("fan_id", 1), ("updated_at", -1)])
+    await db.chat_conversations.create_index([("creator_id", 1), ("updated_at", -1)])
+    await db.chat_messages.create_index("message_id", unique=True)
+    await db.chat_messages.create_index(
+        [("sender_id", 1), ("client_message_id", 1)], unique=True
+    )
+    await db.chat_messages.create_index([("conversation_id", 1), ("created_at", -1)])
     await db.support_messages.create_index([("user_id", 1), ("created_at", -1)])
     await db.support_messages.create_index([("created_at", -1)])
     await db.otp_codes.create_index("phone")

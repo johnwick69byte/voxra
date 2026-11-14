@@ -7,6 +7,7 @@ import { useRouter } from "expo-router";
 import { useAuthStore } from "../../src/store/authStore";
 import { creatorsAPI } from "../../src/services/api";
 import { useNotificationsStore } from "../../src/store/notificationsStore";
+import { useChatStore } from "../../src/store/chatStore";
 import { theme } from "../../src/theme/tokens";
 
 function TabIcon({
@@ -39,11 +40,16 @@ export default function TabsLayout() {
   const userId = useAuthStore((s) => s.user?.user_id);
   const unread = useNotificationsStore((s) => s.unread);
   const refreshUnread = useNotificationsStore((s) => s.refresh);
+  const chatUnread = useChatStore((s) => s.unread);
+  const refreshChatUnread = useChatStore((s) => s.refresh);
   const isCreator = userType === "creator";
 
   useEffect(() => {
-    if (userId) refreshUnread();
-  }, [userId, refreshUnread]);
+    if (userId) {
+      refreshUnread();
+      refreshChatUnread();
+    }
+  }, [userId, refreshUnread, refreshChatUnread]);
 
   useEffect(() => {
     if (!isCreator || !userId) return;
@@ -92,11 +98,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="following"
+        name="chat"
         options={{
-          title: isCreator ? "Calls" : "Following",
+          title: "Chat",
+          tabBarBadge: chatUnread > 0 ? chatUnread : undefined,
+          tabBarBadgeStyle: { backgroundColor: theme.colors.brand, fontSize: 10 },
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon name={isCreator ? "time" : "heart"} color={color} focused={focused} />
+            <TabIcon name="chatbubbles" color={color} focused={focused} />
           ),
         }}
       />

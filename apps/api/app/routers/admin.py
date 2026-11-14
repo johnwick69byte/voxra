@@ -1143,8 +1143,15 @@ async def financial_dashboard(admin: dict = Depends(require_admin)):
     db = get_db()
     total_creators = await db.creator_profiles.count_documents({"is_approved": True})
     total_revenue = await _sum_amount(
-        db, {"type": {"$in": ["RECHARGE", "CALL_DEBIT", "GIFT_DEBIT"]}}
+        db, {"type": {"$in": ["RECHARGE", "CALL_DEBIT", "GIFT_DEBIT", "CHAT_DEBIT"]}}
     )
+    chat_rows = await db.platform_commissions.aggregate(
+        [
+            {"$match": {"type": "CHAT_COMMISSION"}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        ]
+    ).to_list(1)
+    chat_revenue = round(chat_rows[0]["total"], 2) if chat_rows else 0.0
     total_commission = await _sum_amount(
         db, {"type": {"$in": ["COMMISSION", "GIFT_COMMISSION", "RECHARGE_COMMISSION"]}}
     )
@@ -1172,6 +1179,7 @@ async def financial_dashboard(admin: dict = Depends(require_admin)):
         "total_withdrawals": total_withdrawals,
         "platform_wallet_balance": balance,
         "net_profit": balance,
+        "chat_revenue": chat_revenue,
     }
 
 
@@ -1552,3 +1560,24 @@ async def admin_wallet_credit(body: dict, admin: dict = Depends(require_admin)):
         "gross": splits["original_amount"],
         "order_id": order_id,
     }
+
+
+# ── Chats ────────────────────────────────────────────────────────────────────
+
+
+@router.get("/chats")
+async def admin_chats(
+    limit: int = 50,
+    skip: int = 0,
+    admin: dict = Depends(require_admin),
+):
+    from app.services import chat_service
+
+    return await chat_service.admin_list(limit=limit, skip=skip)
+
+
+@router.get("/chats/{conversation_id}")
+async def admin_chat_thread(conversation_id: str, admin: dict = Depends(require_admin)):
+    from app.services import chat_service
+
+    return await chat_service.admin_thread(conversation_id)

@@ -16,7 +16,8 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import Toast from "react-native-toast-message";
-import { creatorsAPI, callsAPI, moderationAPI } from "../../src/services/api";
+import { creatorsAPI, callsAPI, moderationAPI, chatAPI } from "../../src/services/api";
+import { useAuthStore } from "../../src/store/authStore";
 import { StatusDot } from "../../src/components/StatusDot";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { AppText } from "../../src/components/ui";
@@ -45,6 +46,9 @@ export default function CreatorProfile() {
   // take time, and a second tap would start a duplicate call.
   const [busy, setBusy] = useState(false);
   const [photoIdx, setPhotoIdx] = useState(0);
+  const viewer = useAuthStore((s) => s.user);
+  const canChat = viewer?.user_type !== "creator" && viewer?.user_id !== id;
+  const [chatBusy, setChatBusy] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -67,7 +71,12 @@ export default function CreatorProfile() {
   useEffect(() => {
     const onStatus = (payload: any) => {
       if (!payload?.user_id || payload.user_id !== String(id)) return;
-      setCreator((c: any) => (c ? { ...c, status: payload.status ?? c.status } : c));
+      setCreator((c: any) => {
+        if (!c) return c;
+        // The API emits ONLINE when a creator is released from a call.
+        const rawStatus = payload.status ?? c.status;
+        return { ...c, status: rawStatus === "ONLINE" ? "ACTIVE" : rawStatus };
+      });
     };
     socketService.on("creator_status", onStatus);
     return () => socketService.off("creator_status", onStatus);
@@ -146,6 +155,25 @@ export default function CreatorProfile() {
       });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const startChat = async () => {
+    if (!canChat || chatBusy || !id) return;
+    setChatBusy(true);
+    try {
+      const res = await chatAPI.open(String(id));
+      const conversationId = res.data?.conversation?.conversation_id;
+      if (!conversationId) throw new Error("Chat was not created");
+      router.push(`/chat/${conversationId}`);
+    } catch (e: any) {
+      Toast.show({
+        type: "error",
+        text1: "Cannot open chat",
+        text2: e?.response?.data?.detail || e.message,
+      });
+    } finally {
+      setChatBusy(false);
     }
   };
 
@@ -384,6 +412,15 @@ export default function CreatorProfile() {
           </AppText>
         ) : offline ? (
           <AppText style={styles.unavail}>Offline — they will get a call notification</AppText>
+        ) : null}
+        {canChat ? (
+          <PrimaryButton
+            label="Chat · ₹1"
+            variant="ghost"
+            onPress={startChat}
+            loading={chatBusy}
+            style={{ marginBottom: 10 }}
+          />
         ) : null}
         <View style={styles.actions}>
           <PrimaryButton

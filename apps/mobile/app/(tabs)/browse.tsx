@@ -61,7 +61,7 @@ export default function BrowseScreen() {
 
   const [query, setQuery] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
-  const [status, setStatus] = useState<"all" | "active">("all");
+  const [status, setStatus] = useState<"all" | "active" | "following">("all");
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -95,7 +95,8 @@ export default function BrowseScreen() {
       page: pageNum,
       limit: 20,
       sort: filters.sort,
-      status,
+      status: status === "active" ? "active" : "all",
+      following: status === "following" ? true : undefined,
       q: debouncedQ || undefined,
       gender: filters.gender || undefined,
       language: filters.language || undefined,
@@ -196,7 +197,10 @@ export default function BrowseScreen() {
         let changed = false;
         const next = prev.map((c) => {
           if (c.user_id !== id) return c;
-          const status = payload.status ?? c.status;
+          // The API emits ONLINE when a creator is released from a call; the
+          // listing uses ACTIVE for the same state.
+          const rawStatus = payload.status ?? c.status;
+          const status = rawStatus === "ONLINE" ? "ACTIVE" : rawStatus;
           const isOnline = payload.is_online ?? status === "ACTIVE";
           if (c.status === status && c.is_online === isOnline) return c;
           changed = true;
@@ -399,7 +403,10 @@ export default function BrowseScreen() {
       </View>
 
       <View style={styles.statusRow}>
-        {(["all", "active"] as const).map((s) => (
+        {(isCreator
+          ? (["all", "active"] as const)
+          : (["all", "active", "following"] as const)
+        ).map((s) => (
           <Pressable
             key={s}
             onPress={() => setStatus(s)}
@@ -409,7 +416,7 @@ export default function BrowseScreen() {
               <View style={styles.liveDot} />
             ) : null}
             <AppText style={[styles.statusText, status === s && styles.statusTextOn]}>
-              {s === "all" ? "All" : "Active now"}
+              {s === "all" ? "All" : s === "active" ? "Active now" : "Following"}
             </AppText>
           </Pressable>
         ))}
@@ -446,7 +453,14 @@ export default function BrowseScreen() {
           onEndReachedThreshold={0.4}
           contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 32 }}
           ListEmptyComponent={
-            <EmptyState title="No creators found" subtitle="Try another search or clear filters." />
+            <EmptyState
+              title={status === "following" ? "No one followed yet" : "No creators found"}
+              subtitle={
+                status === "following"
+                  ? "Follow creators and they will show up in this filter."
+                  : "Try another search or clear filters."
+              }
+            />
           }
           ListFooterComponent={
             loadingMore ? (
@@ -469,7 +483,11 @@ export default function BrowseScreen() {
                       </AppText>
                       {item.status === "ACTIVE" ? <View style={styles.liveDot} /> : null}
                     </View>
-                    <StatusDot status={item.status} />
+                    {/* Offline is the default state for most creators, so the
+                        listing only surfaces actionable statuses (busy/DND). */}
+                    {item.status && item.status !== "OFFLINE" ? (
+                      <StatusDot status={item.status} />
+                    ) : null}
                     <AppText variant="caption" style={{ marginTop: 6 }}>
                       ₹{item.audio_rate_per_minute}/min audio · ₹{item.video_rate_per_minute}/min video
                     </AppText>

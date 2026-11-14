@@ -19,6 +19,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.socket import emit_to_user
 from app.services import push_service, wallet_service
+from app.services.chat_filter import reject_contact_details
 
 logger = logging.getLogger(__name__)
 
@@ -419,6 +420,7 @@ def _clean_text(text: str) -> str:
         raise HTTPException(400, "Message is empty")
     if len(cleaned) > MAX_TEXT_LENGTH:
         raise HTTPException(400, "Message is too long")
+    reject_contact_details(cleaned)
     return cleaned
 
 

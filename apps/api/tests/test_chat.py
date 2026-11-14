@@ -369,6 +369,66 @@ def _browse(db, user, following):
     )
 
 
+def test_contact_details_are_rejected_and_times_are_allowed(monkeypatch):
+    from app.services.chat_filter import contains_contact_details
+
+    blocked = [
+        "call me 9876543210",
+        "my number is +91 98765 43210",
+        "reach me at 098765-43210",
+        "9 8 7 6 5 4 3 2 1 0",
+        "nine eight seven six five four three two one zero",
+        "https://instagram.com/cool.name",
+        "insta is cool_name",
+        "telegram: star_girl",
+        "t.me/star_girl",
+        "t . me / star_girl",
+        "wa.me/919876543210",
+        "ping me @star_girl",
+        "free at 10:30, number 9876543210",
+    ]
+    allowed = [
+        "see you at 10:30",
+        "I am free at 10:30 pm",
+        "let's talk at 5pm",
+        "around 10.30 or 18:05",
+        "between 3 and 4",
+        "five thirty works",
+        "the call rate is 1500",
+        "hello there",
+    ]
+    for sample in blocked:
+        assert contains_contact_details(sample), sample
+    for sample in allowed:
+        assert not contains_contact_details(sample), sample
+
+    db = _seed_chat()
+    _bind(monkeypatch, db)
+    opened = asyncio.run(chat_service.open_conversation(FAN, "creator_1"))
+    conversation_id = opened["conversation"]["conversation_id"]
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            chat_service.send_message(FAN, conversation_id, "call 9876543210", "client-phone")
+        )
+    assert exc.value.status_code == 400
+    assert db.chat_messages.docs == []
+    assert _wallet(db, "fan_1")["balance"] == 10.0
+
+    sent = asyncio.run(
+        chat_service.send_message(FAN, conversation_id, "see you at 10:30", "client-time")
+    )
+    assert sent["message"]["text"] == "see you at 10:30"
+    assert _wallet(db, "fan_1")["balance"] == 9.0
+
+    with pytest.raises(HTTPException) as creator_exc:
+        asyncio.run(
+            chat_service.send_message(CREATOR, conversation_id, "insta is cool_name", "client-ig")
+        )
+    assert creator_exc.value.status_code == 400
+    assert len(db.chat_messages.docs) == 1
+
+
 def test_following_browse_returns_only_followed_creators(monkeypatch):
     db = FakeDB()
     db.creator_profiles.docs = [

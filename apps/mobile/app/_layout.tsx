@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { AppState, View, ActivityIndicator } from "react-native";
+import { AppState, View, ActivityIndicator, Platform } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 import Toast from "react-native-toast-message";
 import { useAuthStore } from "../src/store/authStore";
@@ -29,6 +29,7 @@ import { useChatStore } from "../src/store/chatStore";
 import { isChatThreadOpen } from "../src/services/activeChat";
 import { ensureAllPermissions } from "../src/services/permissions";
 import { openCallScreen, buildCallParamsFromActive } from "../src/services/callNavigation";
+import { consumeIncomingLaunch, dismissIncomingCallUi } from "../src/services/incomingCallLaunch";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -125,6 +126,16 @@ export default function RootLayout() {
         return;
       }
 
+      // The native lock screen owns the ring while this activity is not
+      // visible. Accept is the exception: it is what brings the app forward.
+      if (
+        Platform.OS === "android" &&
+        AppState.currentState !== "active" &&
+        opts?.action !== "accept"
+      ) {
+        return;
+      }
+
       // Notification taps can be seconds old. Confirm with the authoritative
       // call state before showing a screen; if the call was already accepted,
       // go straight to the call screen instead.
@@ -168,6 +179,8 @@ export default function RootLayout() {
 
       store.setIncomingOpen(callId);
       setIncoming(effective);
+      // The in-app screen is now the only UI. Drop the lock-screen activity.
+      dismissIncomingCallUi();
       // Clean up any legacy Notifee notification/persisted payload. Do not
       // await: the incoming screen must appear immediately.
       cancelCallNotification(callId).catch(() => {});
@@ -182,6 +195,7 @@ export default function RootLayout() {
           callType: effective.call_type || "AUDIO",
           channelName: effective.channel_name || "",
           declineToken: effective.decline_token || "",
+          autoAccept: opts?.action === "accept" ? "1" : "",
         },
       });
     };
@@ -192,6 +206,7 @@ export default function RootLayout() {
 
     const onCancelNotif = async (payload: any) => {
       await cancelCallNotification(payload?.call_id);
+      dismissIncomingCallUi();
       clearPendingCall(payload?.call_id).catch(() => {});
       setIncoming(null);
       // Release the slot so a subsequent call for the same id can open again.
@@ -246,53 +261,95 @@ export default function RootLayout() {
       router.push(path as never);
     });
 
+    // Cold start is handled by the recovery below. This only runs after the
+    // app has been in the background, which is when Accept or a manual return
+    // should take over from the lock-screen UI.
+    let initialRecoveryDone = false;
+    let leftForeground = AppState.currentState !== "active";
+    const onAppState = AppState.addEventListener("change", (state) => {
+      if (state !== "active") {
+        leftForeground = true;
+        return;
+      }
+      if (!initialRecoveryDone || !leftForeground) return;
+      leftForeground = false;
+      const store = useCallStore.getState();
+      if (store.incomingOpen || store.activeCallId) return;
+      consumeIncomingLaunch()
+        .then((launch) => {
+          if (launch?.action === "accept" && launch.call_id) {
+            return openIncoming(launch, { action: "accept", verify: true });
+          }
+          return callsAPI.active({ timeout: 4000 }).then((res) => {
+            const call = res.data?.call;
+            if (call?.status === "RINGING" && res.data?.role === "receiver") {
+              return openIncoming(call);
+            }
+          });
+        })
+        .catch(() => {});
+    });
+
     /**
      * Cold-start recovery.
      *
      * /calls/active is authoritative. A persisted push payload is only used
      * when the active request cannot be completed, or when it matches the
-     * active RINGING call. This removes the old race where active recovery and
-     * the persisted payload each pushed their own incoming-call screen.
+     * active RINGING call. A lock-screen Accept is consumed first so it cannot
+     * also open a second ringing screen.
      */
     (async () => {
-      const pending = await consumePendingCall();
-      let activeData: any = null;
-      let activeKnown = false;
       try {
-        const res = await callsAPI.active({ timeout: 6000 });
-        activeData = res.data;
-        activeKnown = true;
-      } catch {
-        /* offline: the fresh persisted payload is the best available state */
-      }
-
-      const call = activeData?.call;
-      const role = activeData?.role;
-      if (call) {
-        if (call.status === "RINGING" && role === "receiver") {
-          const effective =
-            pending?.call_id === call.call_id ? { ...call, ...pending } : call;
-          await openIncoming(effective);
+        const launch = await consumeIncomingLaunch();
+        const pending = await consumePendingCall();
+        if (launch?.action === "accept" && launch.call_id) {
+          await openIncoming(
+            { ...pending, ...launch, type: "incoming_call" },
+            { action: "accept", verify: true }
+          );
           return;
         }
-        if (
-          ["ACCEPTED", "LIVE"].includes(call.status) ||
-          (call.status === "RINGING" && role === "caller")
-        ) {
-          const params = buildCallParamsFromActive(activeData);
-          if (params) openCallScreen(params);
-          return;
+        let activeData: any = null;
+        let activeKnown = false;
+        try {
+          const res = await callsAPI.active({ timeout: 6000 });
+          activeData = res.data;
+          activeKnown = true;
+        } catch {
+          /* offline: the fresh persisted payload is the best available state */
         }
-      }
 
-      if (pending?.call_id && !activeKnown) {
-        await openIncoming(pending);
+        const call = activeData?.call;
+        const role = activeData?.role;
+        if (call) {
+          if (call.status === "RINGING" && role === "receiver") {
+            const effective =
+              pending?.call_id === call.call_id ? { ...call, ...pending } : call;
+            await openIncoming(effective);
+            return;
+          }
+          if (
+            ["ACCEPTED", "LIVE"].includes(call.status) ||
+            (call.status === "RINGING" && role === "caller")
+          ) {
+            const params = buildCallParamsFromActive(activeData);
+            if (params) openCallScreen(params);
+            return;
+          }
+        }
+
+        if (pending?.call_id && !activeKnown) {
+          await openIncoming(pending);
+        }
+      } finally {
+        initialRecoveryDone = true;
       }
     })();
 
     return () => {
       unsubscribeRoute();
       unsubscribeNav();
+      onAppState.remove();
       socketService.off("incoming_call", onIncoming);
       socketService.off("cancel_call_notification", onCancelNotif);
       socketService.off("call_cancelled", onCancelNotif);

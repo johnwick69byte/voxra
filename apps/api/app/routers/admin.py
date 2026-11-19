@@ -314,14 +314,15 @@ async def force_end(call_id: str, admin: dict = Depends(require_admin)):
 
 
 @router.get("/calls/logs")
-async def call_logs(skip: int = 0, limit: int = 50, admin: dict = Depends(require_admin)):
+async def call_logs(skip: int = 0, limit: int = 100, admin: dict = Depends(require_admin)):
     db = get_db()
+    page_size = min(max(limit, 1), 200)
     calls = (
         await db.call_records.find({}, {"_id": 0, "decline_token": 0})
         .sort("created_at", -1)
-        .skip(skip)
-        .limit(min(limit, 100))
-        .to_list(100)
+        .skip(max(skip, 0))
+        .limit(page_size)
+        .to_list(page_size)
     )
     total = await db.call_records.count_documents({})
     # Enrich with peer names
@@ -365,14 +366,18 @@ async def call_logs(skip: int = 0, limit: int = 50, admin: dict = Depends(requir
 
 
 @router.get("/calls/missed")
-async def missed_calls(admin: dict = Depends(require_admin)):
+async def missed_calls(skip: int = 0, limit: int = 100, admin: dict = Depends(require_admin)):
     db = get_db()
+    page_size = min(max(limit, 1), 200)
+    query = {"status": "MISSED"}
     calls = (
-        await db.call_records.find({"status": "MISSED"}, {"_id": 0, "decline_token": 0})
+        await db.call_records.find(query, {"_id": 0, "decline_token": 0})
         .sort("created_at", -1)
-        .limit(100)
-        .to_list(100)
+        .skip(max(skip, 0))
+        .limit(page_size)
+        .to_list(page_size)
     )
+    total = await db.call_records.count_documents(query)
     ids: set[str] = set()
     for c in calls:
         ids.add(c.get("caller_id"))
@@ -386,7 +391,7 @@ async def missed_calls(admin: dict = Depends(require_admin)):
     for c in calls:
         c["caller_name"] = names.get(c.get("caller_id"))
         c["receiver_name"] = names.get(c.get("receiver_id"))
-    return {"success": True, "calls": calls}
+    return {"success": True, "calls": calls, "total": total}
 
 
 @router.post("/calls/generate-token")

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { adminAPI } from "../services/api";
+import { istDate } from "../utils/format";
 
 export default function WithdrawalIncreases() {
   const [items, setItems] = useState<any[]>([]);
@@ -73,7 +74,7 @@ export default function WithdrawalIncreases() {
                 <td>
                   {r.user_id}
                   <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                    {r.created_at ? new Date(r.created_at).toLocaleDateString() : ""}
+                    {istDate(r.created_at)}
                   </div>
                 </td>
                 <td>₹{Number(r.requested_max_amount).toLocaleString()}</td>

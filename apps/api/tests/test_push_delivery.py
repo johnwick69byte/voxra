@@ -150,16 +150,20 @@ class TestSignupPhotoRemoved:
 
 class TestKilledAppCall:
     def test_ring_is_a_notification_message(self):
-        """The OS must draw the ring; a killed app may never run headless JS."""
+        """A killed app must still be woken. Android uses a data message the
+        native service can turn into the lock screen. iOS stays a notification
+        message with the custom sound.
+        """
         import inspect
 
-        from app.services import call_service
+        from app.services.call_service import ring_delivery
 
-        src = inspect.getsource(call_service.initiate_call)
-        assert "data_only=False" in src
-        assert "data_only=True" not in src
-        assert 'channel_id="incoming_calls_v2"' in src
-        assert 'sound="sound_effect"' in src
+        android = ring_delivery("android")
+        assert android["data_only"] is True
+        ios = ring_delivery("ios")
+        assert ios["data_only"] is False
+        assert ios["channel_id"] == "incoming_calls_v2"
+        assert ios["sound"] == "sound_effect"
 
     def test_background_handler_persists_pending_call(self):
         """The headless task is a separate JS context; state must be persisted."""

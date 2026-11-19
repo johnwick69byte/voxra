@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
 import { adminAPI } from "../services/api";
+import { istDate } from "../utils/format";
 
 function inr(n: number | undefined) {
   return `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }
 
 function when(value?: string) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
+  return istDate(value);
 }
 
 export default function Chats() {

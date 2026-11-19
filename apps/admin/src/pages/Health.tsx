@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { adminAPI } from "../services/api";
+import { istDate, istTime } from "../utils/format";
 
 export default function Health() {
   const [health, setHealth] = useState<any>(null);
@@ -34,7 +35,7 @@ export default function Health() {
         Redis, sockets, stuck-call sweeper, Firebase, admin audit trail.{" "}
         {health?.ts && (
           <span style={{ opacity: 0.5, fontSize: 12 }}>
-            Last updated {new Date(health.ts).toLocaleTimeString()}
+            Last updated {istTime(health.ts)}
           </span>
         )}
       </p>
@@ -115,7 +116,7 @@ export default function Health() {
               {audit.map((a, i) => (
                 <tr key={i}>
                   <td style={{ whiteSpace: "nowrap" }}>
-                    {a.created_at ? new Date(a.created_at).toLocaleString() : "—"}
+                    {istDate(a.created_at)}
                   </td>
                   <td>{a.admin_id}</td>
                   <td>{a.action}</td>

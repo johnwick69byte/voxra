@@ -199,13 +199,11 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
         logger.exception("call insert failed for %s", call_id)
         raise HTTPException(500, "Could not start the call, please try again")
 
-    # Ring with an FCM *notification* message, not data-only. Android/iOS draw
-    # it even when our process was killed; the old headless Notifee path was
-    # silently skipped on many devices, so an offline creator with working
-    # internet never saw the call. The app turns the tap into the single
-    # in-app incoming screen (data payload routes to /incoming-call).
+    # Android gets a high-priority data message. A native messaging service
+    # draws the lock-screen Accept/Decline UI; an FCM notification cannot.
+    # iOS stays a notification message and keeps the current tap-to-open ring.
     remaining = settings.call_ring_timeout_seconds
-    sent = await push_service.send_to_user(
+    sent = await _send_ring(
         db,
         receiver_id,
         title=f"Incoming {call_type.lower()} call",
@@ -221,12 +219,9 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
             "channel_name": channel_name,
             "decline_token": decline_token,
             "route": "incoming-call",
+            "api_base": settings.backend_url.rstrip("/") + "/api",
         },
-        data_only=False,
         ttl_seconds=remaining,
-        channel_id="incoming_calls_v2",
-        sound="sound_effect",
-        full_screen=True,
     )
     if not sent:
         logger.warning("ring push not delivered for call %s (receiver %s)", call_id, receiver_id)
@@ -257,6 +252,49 @@ async def initiate_call(*, caller: dict, receiver_id: str, call_type: str) -> di
         "status": "RINGING",
         "rate_per_minute": rate,
     }
+
+
+def ring_delivery(platform: Optional[str]) -> dict:
+    """Android lock-screen UI is drawn natively from a data message.
+
+    iOS cannot show that activity, so it keeps a notification message with the
+    incoming-call channel and custom sound.
+    """
+    ios = (platform or "").lower() == "ios"
+    return {
+        "data_only": not ios,
+        "full_screen": ios,
+        "channel_id": "incoming_calls_v2",
+        "sound": "sound_effect",
+    }
+
+
+async def _send_ring(db, receiver_id: str, **kwargs) -> bool:
+    doc = await db.push_tokens.find_one({"user_id": receiver_id}, {"_id": 0, "platform": 1})
+    platform = (doc or {}).get("platform")
+    return await push_service.send_to_user(
+        db,
+        receiver_id,
+        **kwargs,
+        **ring_delivery(platform),
+    )
+
+
+async def _push_call_cancel(receiver_id: str, call_id: str) -> None:
+    """Dismiss a lock-screen ring after the process that showed it is gone."""
+    try:
+        db = get_db()
+        await push_service.send_to_user(
+            db,
+            receiver_id,
+            title="Call ended",
+            body="Call ended",
+            data={"type": "call_cancel", "call_id": call_id},
+            data_only=True,
+            ttl_seconds=30,
+        )
+    except Exception:
+        logger.exception("call_cancel push failed for %s", call_id)
 
 
 async def schedule_ring_timeout(call_id: str, receiver_id: str, caller_id: str) -> None:
@@ -399,6 +437,7 @@ async def reject_call(*, call_id: str, user: Optional[dict] = None, decline_toke
     await _clear_ring_lock(call["receiver_id"], call_id)
     await emit_to_user(call["caller_id"], "call_rejected", {"call_id": call_id})
     await emit_to_user(call["receiver_id"], "cancel_call_notification", {"call_id": call_id})
+    await _push_call_cancel(call["receiver_id"], call_id)
     status = await presence_service.get_creator_status(call["receiver_id"])
     await emit_to_user(
         call["receiver_id"],
@@ -425,6 +464,7 @@ async def cancel_call(*, call_id: str, user: dict) -> dict:
     await _clear_ring_lock(call["receiver_id"], call_id)
     await emit_to_user(call["receiver_id"], "call_cancelled", {"call_id": call_id})
     await emit_to_user(call["receiver_id"], "cancel_call_notification", {"call_id": call_id})
+    await _push_call_cancel(call["receiver_id"], call_id)
     return {"success": True}
 
 
@@ -447,6 +487,7 @@ async def miss_call(call_id: str) -> dict:
     await emit_to_user(call["caller_id"], "call_missed", {"call_id": call_id})
     await emit_to_user(call["receiver_id"], "call_missed", {"call_id": call_id})
     await emit_to_user(call["receiver_id"], "cancel_call_notification", {"call_id": call_id})
+    await _push_call_cancel(call["receiver_id"], call_id)
     return {"success": True}
 
 

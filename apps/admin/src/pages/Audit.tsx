@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { adminAPI } from "../services/api";
+import { istDate } from "../utils/format";
 
 export default function Audit() {
   const [items, setItems] = useState<any[]>([]);
@@ -30,7 +31,7 @@ export default function Audit() {
                 <td style={{ fontSize: 12, color: "var(--muted)" }}>
                   {a.meta ? JSON.stringify(a.meta) : "—"}
                 </td>
-                <td>{a.created_at ? new Date(a.created_at).toLocaleString() : "—"}</td>
+                <td>{istDate(a.created_at)}</td>
               </tr>
             ))}
             {!items.length && (

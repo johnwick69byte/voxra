@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { adminAPI } from "../services/api";
+import { istDate } from "../utils/format";
 
 export default function Support() {
   const [items, setItems] = useState<any[]>([]);
@@ -30,7 +31,7 @@ export default function Support() {
             <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
               {m.user_name || m.user_id}
               {m.user_phone ? ` · ${m.user_phone}` : ""}
-              {m.created_at ? ` · ${new Date(m.created_at).toLocaleString()}` : ""}
+              {m.created_at ? ` · ${istDate(m.created_at)}` : ""}
             </div>
             <p>{m.message}</p>
             {m.reply && <p style={{ color: "var(--brand)" }}>Reply: {m.reply}</p>}

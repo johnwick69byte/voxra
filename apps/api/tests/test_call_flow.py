@@ -4,8 +4,8 @@ These cover the logic that broke in production, without needing Mongo, Redis or
 a device:
 
 * Agora uid assignment (both sides used to join as uid 0 and evict each other).
-* The ring push being a notification message, not data-only, so Android
-  delivers it to a killed app.
+* Android rings are high-priority data messages so a killed app can draw the
+  lock screen. iOS rings stay notification messages with the custom sound.
 * Presence reporting "unknown" instead of "offline" when Redis is down.
 * The onboarding gate letting a pending creator use the app.
 
@@ -53,26 +53,39 @@ class TestAgoraUid:
 # ── Ring push payload ────────────────────────────────────────────────────────
 
 class TestRingPush:
-    """The ring must be a notification message, not data-only.
+    """Android rings are data messages so the native lock screen can draw them.
 
-    Data-only messages are only delivered to an already-alive JS process. A
-    killed/swiped app may never run the headless task, so an offline creator
-    with working internet received no notification at all. A notification
-    message is drawn by the OS and uses the custom incoming-calls channel.
+    iOS keeps a notification message on the incoming-calls channel. A missing
+    platform is treated as Android. Ending a ring also pushes call_cancel so a
+    killed app dismisses that screen.
     """
 
-    def test_ring_is_notification_message_with_custom_sound(self):
+    def test_ring_splits_android_data_and_ios_notification(self):
         import inspect
 
+        from app.services.call_service import ring_delivery
         from app.services import call_service
 
-        src = inspect.getsource(call_service.initiate_call)
-        assert "data_only=False" in src
-        assert "data_only=True" not in src
-        assert 'channel_id="incoming_calls_v2"' in src
-        assert 'sound="sound_effect"' in src
-        # Uses send_to_user so a dead token is purged instead of retried forever.
-        assert "send_to_user" in src
+        android = ring_delivery("android")
+        assert android["data_only"] is True
+        assert android["channel_id"] == "incoming_calls_v2"
+        assert android["sound"] == "sound_effect"
+
+        ios = ring_delivery("ios")
+        assert ios["data_only"] is False
+        assert ios["full_screen"] is True
+        assert ios["channel_id"] == "incoming_calls_v2"
+        assert ios["sound"] == "sound_effect"
+
+        # A token saved before platform was recorded still reaches the lock screen.
+        assert ring_delivery(None)["data_only"] is True
+        assert ring_delivery("")["data_only"] is True
+
+        initiate = inspect.getsource(call_service.initiate_call)
+        assert "_send_ring" in initiate
+        assert "send_to_user" in inspect.getsource(call_service._send_ring)
+        for fn in (call_service.reject_call, call_service.cancel_call, call_service.miss_call):
+            assert "_push_call_cancel" in inspect.getsource(fn)
 
     def test_failed_push_reports_failure_not_success(self, monkeypatch):
         """A misconfigured server must not look healthy in the metrics."""

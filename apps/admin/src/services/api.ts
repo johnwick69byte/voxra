@@ -26,7 +26,8 @@ export const adminAPI = {
   monitorToken: (channelName: string) =>
     api.post("/admin/calls/generate-token", { channel_name: channelName }),
   callLogs: (params?: any) => api.get("/admin/calls/logs", { params }),
-  missed: () => api.get("/admin/calls/missed"),
+  missed: (params?: { skip?: number; limit?: number }) =>
+    api.get("/admin/calls/missed", { params }),
   pendingCreators: () => api.get("/admin/creators/pending"),
   verifiedCreators: () => api.get("/admin/creators/verified"),
   approve: (userId: string) => api.post(`/admin/creators/${userId}/approve`),

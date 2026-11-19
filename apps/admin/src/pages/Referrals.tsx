@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { adminAPI } from "../services/api";
+import { istDate } from "../utils/format";
 
 function inr(n: number | undefined) {
   return `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
@@ -95,9 +96,7 @@ export default function Referrals() {
               {(data.recent_bonuses || []).map((bonus: any) => (
                 <tr key={bonus.withdrawal_request_id}>
                   <td>
-                    {bonus.created_at
-                      ? new Date(bonus.created_at).toLocaleString("en-IN")
-                      : "—"}
+                    {istDate(bonus.created_at)}
                   </td>
                   <td>{bonus.referred_model_name}</td>
                   <td>{inr(bonus.withdrawal_amount)}</td>

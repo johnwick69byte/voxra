@@ -41,6 +41,12 @@ if (hasFirebaseNative()) {
      */
     messaging().onMessage(async (remoteMessage) => {
       const data = remoteMessage?.data || {};
+      if (data.type === "call_cancel") {
+        const { clearPendingCall, cancelCallNotification } = require("./src/services/IncomingCallService");
+        await clearPendingCall(String(data.call_id || ""));
+        await cancelCallNotification(String(data.call_id || ""));
+        return;
+      }
       if (data.type === "incoming_call") {
         // A notification message is not auto-displayed in the foreground.
         // Route it into the single incoming-call gate instead of drawing a
@@ -54,13 +60,17 @@ if (hasFirebaseNative()) {
       await displayGeneralNotification({ ...data, title, body });
     });
 
-    // A call arrives as a notification message. Android/iOS render it
-    // themselves in the background and killed states, using
-    // incoming_calls_v2 + the custom sound_effect resource. The headless task
-    // only persists the payload as a fallback for cold-start recovery; it must
-    // NOT draw a second notification.
+    // Android rings are data messages. The native service draws the lock
+    // screen when this process is not in front. This task only persists the
+    // payload for cold-start recovery and must not draw a second notification.
+    // iOS still uses a notification message; tapping it opens the in-app screen.
     messaging().setBackgroundMessageHandler(async (remoteMessage) => {
       const data = remoteMessage?.data || {};
+      if (data.type === "call_cancel") {
+        const { clearPendingCall } = require("./src/services/IncomingCallService");
+        await clearPendingCall(String(data.call_id || ""));
+        return;
+      }
       if (data.type !== "incoming_call") return;
       const { savePendingCall } = require("./src/services/IncomingCallService");
       await savePendingCall({ ...data, action: "ring" });
